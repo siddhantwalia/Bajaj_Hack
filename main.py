@@ -5,8 +5,8 @@ import time
 from fastapi import FastAPI, Request, Header, HTTPException
 from pydantic import BaseModel
 from typing import List
-from model import Prompt, llm,NomicEmbeddings
-from utils import parse_pdf_from_url, split_documents
+from model import Prompt, llm,HuggingFaceEmbeddings
+from utils import parse_document_from_url, split_documents
 from langchain_community.vectorstores import FAISS
 from langchain_core.runnables import RunnablePassthrough
 from dotenv import load_dotenv
@@ -23,16 +23,16 @@ class QueryRequest(BaseModel):
 @app.post("/hackrx/run")
 async def run_query(
     req: QueryRequest,
-    auth: str = Header(None)
+    Authorization: str = Header(None)
 ):
     start = time.time()
-    print(f"Received auth: {auth}")
-    if not auth:
+    print(f"Received auth: {Authorization}")
+    if not Authorization:
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
     
     p_time =time.time()
     try:
-        parse_doc = await parse_pdf_from_url(req.documents)
+        parse_doc = await parse_document_from_url(req.documents)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error parsing document: {str(e)}")
     print(f"Parsing time: {time.time()-p_time}")
@@ -48,7 +48,7 @@ async def run_query(
     
     e_time = time.time()
     try:
-        embedding_model = NomicEmbeddings()
+        embedding_model = HuggingFaceEmbeddings()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Embedding failed: {str(e)}")
     print(f"embedding generation time:  {time.time()-e_time}")
@@ -56,19 +56,19 @@ async def run_query(
     s_time = time.time()
     try:
         db = FAISS.from_documents(chunks, embedding_model)
-        retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 5})
+        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 5,"fetch_k":15})
 
     except Exception as e:
 
         raise HTTPException(status_code=500, detail=f"Vector DB error: {str(e)}")
-    print(f"storing vdb time:  {time.time()-e_time}")
+    print(f"storing vdb time:  {time.time()-s_time}")
     
     async def get_answer(question): 
         context_docs = retriever.invoke(question)
         context = "\n".join([doc.page_content for doc in context_docs])
         inputs = {"context": context, "question": question}
         try:
-            answer = await (Prompt | llm).ainvoke(inputs)  # ✅ proper pipeline
+            answer = await (Prompt | llm).ainvoke(inputs) 
             return clean_output(answer)
         except Exception as e:
             return f"Error: {str(e)}"

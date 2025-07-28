@@ -1,1 +1,1 @@
-from .parse import parse_pdf_from_url,split_documents
+from .parse import parse_document_from_url,split_documents
