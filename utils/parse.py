@@ -23,15 +23,15 @@ async def parse_pdf_from_url(url: str):
         tmp_file.write(response.content)
         tmp_path = tmp_file.name
 
-    parser = LlamaParse(
-        result_type="markdown",  
-        output_tables_as_HTML=True,
-        api_key=LLAMA_CLOUD_API_KEY
-    )
-    # parser = PyMuPDFLoader(tmp_path)
+    # parser = LlamaParse(
+    #     result_type="markdown",   
+    #     output_tables_as_HTML=True,
+    #     api_key=LLAMA_CLOUD_API_KEY
+    # )
+    parser = PyMuPDFLoader(tmp_path)
 
-    documents = parser.load_data(tmp_path)
-    # documents = parser.load()
+    # documents = parser.load_data(tmp_path)
+    documents = parser.load()
     return documents
 
 def split_documents(parsed_docs, chunk_size=600, chunk_overlap=100):
@@ -44,13 +44,14 @@ def split_documents(parsed_docs, chunk_size=600, chunk_overlap=100):
     )
 
     try:
-        doc_obj = [LCDocument(
-            page_content=doc.text_resource.text,
-            metadata=doc.metadata,
-            id=doc.id_
-        ) for doc in parsed_docs]
-        # doc_obj = 
-        chunks = splitter.split_documents(doc_obj)
+        # doc_obj = [LCDocument(
+        #     page_content=doc.text_resource.text,
+        #     metadata=doc.metadata,
+        #     id=doc.id_
+        # ) for doc in parsed_docs]
+        # # doc_obj = 
+        
+        chunks = splitter.split_documents(parsed_docs)
         all_chunks.extend(chunks)
     except Exception as e:
         print(f"Error processing document chunk: {e}")
