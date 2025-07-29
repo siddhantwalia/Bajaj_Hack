@@ -19,6 +19,9 @@ class QueryRequest(BaseModel):
     questions : List[str]
     
 
+@app.post('/')
+async def home():
+    return "This is our api endpoint"
 
 @app.post("/hackrx/run")
 async def run_query(
