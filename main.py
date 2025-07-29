@@ -19,7 +19,7 @@ class QueryRequest(BaseModel):
     questions : List[str]
     
 
-@app.post('/')
+@app.get('/')
 async def home():
     return {"home":"This is our api endpoint"}
 
