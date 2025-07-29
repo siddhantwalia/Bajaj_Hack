@@ -26,7 +26,8 @@ async def home():
 @app.post("/hackrx/run")
 async def run_query(
     req: QueryRequest,
-    Authorization: str = Header(None)
+    Authorization: str = Header(default=None, alias="Authorization")
+
 ):
     start = time.time()
     # print(f"Received auth: {Authorization}")
