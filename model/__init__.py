@@ -1,4 +1,4 @@
 from .prompt import Prompt
 from .llm import llm
-from .embedder import HuggingFaceEmbeddings
+from .embedder import HuggingFaceEmbeddings,NomicEmbeddings
 

@@ -68,7 +68,7 @@ async def parse_document_from_url(url: str):
 #     documents = parser.load()
 #     return documents
 
-def split_documents(parsed_docs, chunk_size=800, chunk_overlap=100):
+def split_documents(parsed_docs, chunk_size=1000, chunk_overlap=200):
     all_chunks = []
 
     splitter = RecursiveCharacterTextSplitter(

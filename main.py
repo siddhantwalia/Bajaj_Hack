@@ -5,7 +5,7 @@ import time
 from fastapi import FastAPI, Request, Header, HTTPException
 from pydantic import BaseModel
 from typing import List
-from model import Prompt, llm,HuggingFaceEmbeddings
+from model import Prompt, llm,HuggingFaceEmbeddings,NomicEmbeddings
 from utils import parse_document_from_url, split_documents
 from langchain_community.vectorstores import FAISS
 from langchain_core.runnables import RunnablePassthrough
@@ -26,7 +26,7 @@ async def run_query(
     Authorization: str = Header(None)
 ):
     start = time.time()
-    print(f"Received auth: {Authorization}")
+    # print(f"Received auth: {Authorization}")
     if not Authorization:
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
     
@@ -48,7 +48,7 @@ async def run_query(
     
     e_time = time.time()
     try:
-        embedding_model = HuggingFaceEmbeddings()
+        embedding_model = NomicEmbeddings()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Embedding failed: {str(e)}")
     print(f"embedding generation time:  {time.time()-e_time}")
@@ -56,7 +56,7 @@ async def run_query(
     s_time = time.time()
     try:
         db = FAISS.from_documents(chunks, embedding_model)
-        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 5,"fetch_k":15})
+        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 7,"fetch_k":15})
 
     except Exception as e:
 
