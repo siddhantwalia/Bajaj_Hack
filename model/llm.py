@@ -11,7 +11,7 @@ GROQ_API_KEY = os.getenv("GROQ_APO_KEY")
 
 OPEN_ROUTER_Model = "deepseek/deepseek-r1-0528:free"
 OPEN_AI_Model = 'gpt-4.1-mini-2025-04-14'
-GROQ_Model = "llama-3.1-8b-instant"
+GROQ_Model = "gemma2-9b-it"
 
 llm = ChatGroq(
     model=GROQ_Model,

@@ -56,7 +56,7 @@ async def run_query(
     s_time = time.time()
     try:
         db = FAISS.from_documents(chunks, embedding_model)
-        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 7,"fetch_k":15})
+        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 10,"fetch_k":20})
 
     except Exception as e:
 
