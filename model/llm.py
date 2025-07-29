@@ -7,7 +7,7 @@ load_dotenv()
 
 LLM_API = os.getenv("LLM_API_KEY")
 OPEN_AI_KEY =os.getenv("OPEN_AI_API_KEY")
-GROQ_API_KEY = os.getenv("GROQ_APO_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # os.environ['GROQ_API_KEY'] = GROQ_API_KEY
 
