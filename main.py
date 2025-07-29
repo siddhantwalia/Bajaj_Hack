@@ -5,7 +5,7 @@ import time
 from fastapi import FastAPI, Request, Header, HTTPException
 from pydantic import BaseModel
 from typing import List
-from model import Prompt, llm,HuggingFaceEmbeddings,NomicEmbeddings
+from model import Prompt, llm,NomicEmbeddings
 from utils import parse_document_from_url, split_documents
 from langchain_community.vectorstores import FAISS
 from langchain_core.runnables import RunnablePassthrough

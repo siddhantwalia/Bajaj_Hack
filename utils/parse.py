@@ -4,7 +4,7 @@ import requests
 import tempfile
 from urllib.parse import urlparse
 from pathlib import Path
-from llama_parse import LlamaParse
+# from llama_parse import LlamaParse
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document as LCDocument
