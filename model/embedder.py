@@ -2,7 +2,8 @@ from langchain.embeddings.base import Embeddings
 # from sentence_transformers import SentenceTransformer
 from typing import List
 import os
-from nomic import embed
+from nomic import embed,login
+# from nomic.atlas import AtlasProject
 import os
 from dotenv import load_dotenv
 
@@ -11,10 +12,11 @@ load_dotenv()
 class NomicEmbeddings(Embeddings):
     def __init__(self):
         super(NomicEmbeddings, self).__init__()
-        api_key = os.getenv("EMBEDDING_API_KEY")
+        api_key = os.getenv("NOMIC_TOKEN")
         if not api_key:
             raise ValueError("NOMIC_API_KEY not found in environment variables.")
-        os.environ["NOMIC_API_KEY"] = api_key  
+        os.environ["NOMIC_TOKEN"] =api_key
+        login(api_key) 
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         result = embed.text(
