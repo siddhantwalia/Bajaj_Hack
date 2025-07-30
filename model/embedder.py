@@ -1,5 +1,6 @@
 from langchain.embeddings.base import Embeddings
-from sentence_transformers import SentenceTransformer
+from langchain_community.embeddings import CohereEmbeddings
+# from sentence_transformers import SentenceTransformer
 from typing import List
 import os
 from nomic import embed,login
@@ -10,40 +11,59 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# class NomicEmbeddings(Embeddings):
-#     def __init__(self):
-#         super(NomicEmbeddings, self).__init__()
-#         api_key = os.getenv("NOMIC_TOKEN")
-#         if not api_key:
-#             raise ValueError("NOMIC_API_KEY not found in environment variables.")
-#         os.environ["NOMIC_TOKEN"] =api_key
-#         login(api_key) 
+class NomicEmbeddings(Embeddings):
+    def __init__(self):
+        super(NomicEmbeddings, self).__init__()
+        api_key = os.getenv("NOMIC_TOKEN")
+        if not api_key:
+            raise ValueError("NOMIC_API_KEY not found in environment variables.")
+        os.environ["NOMIC_TOKEN"] =api_key
+        login(api_key) 
 
-#     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-#         result = embed.text(
-#             texts=texts,
-#             model="nomic-embed-text-v1.5",
-#             task_type="search_document"
-#         )
-#         return result["embeddings"]
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        result = embed.text(
+            texts=texts,
+            model="nomic-embed-text-v1.5",
+            task_type="search_document"
+        )
+        return result["embeddings"]
 
-#     def embed_query(self, text: str) -> list[float]:
-#         result = embed.text(
-#             texts=[text],
-#             model="nomic-embed-text-v1.5",
-#             task_type="search_query"
-#         )
-#         return result["embeddings"][0]
+    def embed_query(self, text: str) -> list[float]:
+        result = embed.text(
+            texts=[text],
+            model="nomic-embed-text-v1.5",
+            task_type="search_query"
+        )
+        return result["embeddings"][0]
 
 
-class HuggingFaceEmbeddings(Embeddings):
-    def __init__(self, model_name: str = "BAAI/bge-large-en-v1.5"):
+class CustomCohereEmbeddings(Embeddings):
+    def __init__(self):
         super().__init__()
-        os.environ["TRANSFORMERS_CACHE"] = "/tmp/hf_cache" 
-        self.model = SentenceTransformer(model_name)
+        api_key = os.getenv("COHERE_API_KEY")
+        if not api_key:
+            raise ValueError("COHERE_API_KEY not found in environment variables.")
 
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        return self.model.encode(texts, convert_to_numpy=True).tolist()
+        self.model = CohereEmbeddings(
+            cohere_api_key=api_key,
+            model="embed-english-v3.0",  # or "embed-multilingual-v3.0"
+            input_type="search_document"  # you can switch to "classification" or "search_query" as needed
+        )
 
-    def embed_query(self, text: str) -> List[float]:
-        return self.model.encode(text, convert_to_numpy=True).tolist()
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self.model.embed_documents(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        return self.model.embed_query(text)
+
+# class HuggingFaceEmbeddings(Embeddings):
+#     def __init__(self, model_name: str = "BAAI/bge-large-en-v1.5"):
+#         super().__init__()
+#         os.environ["TRANSFORMERS_CACHE"] = "/tmp/hf_cache" 
+#         self.model = SentenceTransformer(model_name)
+
+#     def embed_documents(self, texts: List[str]) -> List[List[float]]:
+#         return self.model.encode(texts, convert_to_numpy=True).tolist()
+
+#     def embed_query(self, text: str) -> List[float]:
+#         return self.model.encode(text, convert_to_numpy=True).tolist()

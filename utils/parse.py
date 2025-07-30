@@ -13,12 +13,8 @@ from langchain_community.document_loaders import (
     Docx2txtLoader,
     UnstructuredEmailLoader
 )
-
-
-load_dotenv()
+from langchain_community.document_loaders.llmsherpa import LLMSherpaFileLoader
 nest_asyncio.apply()
-
-LLAMA_CLOUD_API_KEY = os.getenv("LLAMA_CLOUD_API_KEY")
 
 
 
@@ -35,9 +31,21 @@ async def parse_document_from_url(url: str):
         tmp_path = tmp_file.name
 
     if ext == ".pdf":
-        loader = PyMuPDFLoader(tmp_path)
+        loader = LLMSherpaFileLoader(
+        file_path=tmp_path,
+        new_indent_parser=True,
+        apply_ocr=True,
+        strategy="chunks",
+        llmsherpa_api_url="http://localhost:5010/api/parseDocument?renderFormat=all"
+        )
     elif ext == ".docx":
-        loader = Docx2txtLoader(tmp_path)
+        loader = LLMSherpaFileLoader(
+        file_path=tmp_path,
+        new_indent_parser=True,
+        apply_ocr=True,
+        strategy="chunks",
+        llmsherpa_api_url="http://localhost:5010/api/parseDocument?renderFormat=all"
+        )
     elif ext == ".eml":
         loader = UnstructuredEmailLoader(tmp_path)
     else:
