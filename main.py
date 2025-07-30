@@ -5,7 +5,7 @@ import time
 from fastapi import FastAPI, Request, Header, HTTPException
 from pydantic import BaseModel
 from typing import List
-from model import Prompt, llm,NomicEmbeddings,CustomCohereEmbeddings
+from model import Prompt, llm,NomicEmbeddings,HuggingFaceEmbed
 from utils import parse_document_from_url, split_documents
 from langchain_community.vectorstores import FAISS
 from langchain_core.runnables import RunnablePassthrough
@@ -52,7 +52,7 @@ async def run_query(
     
     e_time = time.time()
     try:
-        embedding_model = CustomCohereEmbeddings()
+        embedding_model = HuggingFaceEmbed()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Embedding failed: {str(e)}")
     print(f"embedding generation time:  {time.time()-e_time}")

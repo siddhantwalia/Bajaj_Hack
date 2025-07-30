@@ -1,5 +1,7 @@
 from langchain.embeddings.base import Embeddings
-from langchain_community.embeddings import CohereEmbeddings
+# from langchain_community.embeddings import CohereEmbeddings
+from langchain_cohere import CohereEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 # from sentence_transformers import SentenceTransformer
 from typing import List
 import os
@@ -40,14 +42,14 @@ class NomicEmbeddings(Embeddings):
 class CustomCohereEmbeddings(Embeddings):
     def __init__(self):
         super().__init__()
-        api_key = os.getenv("COHERE_API_KEY")
+        api_key = os.getenv("CO_API_KEY")
         if not api_key:
-            raise ValueError("COHERE_API_KEY not found in environment variables.")
+            raise ValueError("CO_API_KEY not found in environment variables.")
 
         self.model = CohereEmbeddings(
             cohere_api_key=api_key,
-            model="embed-english-v3.0",  # or "embed-multilingual-v3.0"
-            input_type="search_document"  # you can switch to "classification" or "search_query" as needed
+            model="embed-english-v3.0",
+            user_agent='langchain'
         )
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
@@ -56,14 +58,15 @@ class CustomCohereEmbeddings(Embeddings):
     def embed_query(self, text: str) -> list[float]:
         return self.model.embed_query(text)
 
-# class HuggingFaceEmbeddings(Embeddings):
-#     def __init__(self, model_name: str = "BAAI/bge-large-en-v1.5"):
-#         super().__init__()
-#         os.environ["TRANSFORMERS_CACHE"] = "/tmp/hf_cache" 
-#         self.model = SentenceTransformer(model_name)
+class HuggingFaceEmbed():
+    def __init__(self):
+        super().__init__()
+        embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-large-en-v1.5")
+        os.environ["TRANSFORMERS_CACHE"] = "/tmp/hf_cache" 
+    
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return self.embeddings(texts, convert_to_numpy=True).tolist()
 
-#     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-#         return self.model.encode(texts, convert_to_numpy=True).tolist()
+    def embed_query(self, text: str) -> List[float]:
+        return self.embeddings(text, convert_to_numpy=True).tolist()
 
-#     def embed_query(self, text: str) -> List[float]:
-#         return self.model.encode(text, convert_to_numpy=True).tolist()

@@ -6,7 +6,7 @@ import os
 
 load_dotenv()
 
-COHERE_API_KEY = os.getenv("COHERE_API_KEY")
+CO_API_KEY = os.getenv("CO_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # os.environ['GROQ_API_KEY'] = GROQ_API_KEY
@@ -14,17 +14,17 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_Model = "gemma2-9b-it"
 Cohere_Model = "command-r"
 
-llm  = ChatCohere(
-    model=Cohere_Model,
-    cohere_api_key=COHERE_API_KEY
-    )
+# llm  = ChatCohere(
+#     model=Cohere_Model,
+#     cohere_api_key=CO_API_KEY
+#     )
 
-# llm = ChatGroq(
-#     model=GROQ_Model,
-#     temperature=0.2,
-#     # reasoning_format="parsed",
-#     api_key=GROQ_API_KEY
-# )
+llm = ChatGroq(
+    model=GROQ_Model,
+    temperature=0.2,
+    # reasoning_format="parsed",
+    api_key=GROQ_API_KEY
+)
 
 # llm = ChatOpenAI(
 #     model=OPEN_AI_Model,

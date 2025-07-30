@@ -31,21 +31,22 @@ async def parse_document_from_url(url: str):
         tmp_path = tmp_file.name
 
     if ext == ".pdf":
-        loader = LLMSherpaFileLoader(
-        file_path=tmp_path,
-        new_indent_parser=True,
-        apply_ocr=True,
-        strategy="chunks",
-        llmsherpa_api_url="http://localhost:5010/api/parseDocument?renderFormat=all"
-        )
+        # loader = LLMSherpaFileLoader(
+        # file_path=tmp_path,
+        # new_indent_parser=True,
+        # apply_ocr=True,
+        # strategy="chunks",
+        # llmsherpa_api_url="http://localhost:5010/api/parseDocument?renderFormat=all"
+        loader = PyMuPDFLoader(tmp_path)
     elif ext == ".docx":
-        loader = LLMSherpaFileLoader(
-        file_path=tmp_path,
-        new_indent_parser=True,
-        apply_ocr=True,
-        strategy="chunks",
-        llmsherpa_api_url="http://localhost:5010/api/parseDocument?renderFormat=all"
-        )
+        # loader = LLMSherpaFileLoader(
+        # file_path=tmp_path,
+        # new_indent_parser=True,
+        # apply_ocr=True,
+        # strategy="chunks",
+        # llmsherpa_api_url="http://localhost:5010/api/parseDocument?renderFormat=all"
+        # )
+        loader =  Docx2txtLoader(tempfile)
     elif ext == ".eml":
         loader = UnstructuredEmailLoader(tmp_path)
     else:
