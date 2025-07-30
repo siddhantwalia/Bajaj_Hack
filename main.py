@@ -5,7 +5,7 @@ import time
 from fastapi import FastAPI, Request, Header, HTTPException
 from pydantic import BaseModel
 from typing import List
-from model import Prompt, llm,NomicEmbeddings
+from model import Prompt, llm,NomicEmbeddings,HuggingFaceEmbeddings
 from utils import parse_document_from_url, split_documents
 from langchain_community.vectorstores import FAISS
 from langchain_core.runnables import RunnablePassthrough
@@ -60,7 +60,7 @@ async def run_query(
     s_time = time.time()
     try:
         db = FAISS.from_documents(chunks, embedding_model)
-        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 10,"fetch_k":20})
+        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 10,"lambda_mult":0.5})
 
     except Exception as e:
 
