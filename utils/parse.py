@@ -16,66 +16,48 @@ from langchain_community.document_loaders import (
 from langchain_community.document_loaders.llmsherpa import LLMSherpaFileLoader
 nest_asyncio.apply()
 
-
-
 async def parse_document_from_url(url: str):
     response = requests.get(url)
     response.raise_for_status()
     parsed_url = urlparse(url)
     ext = Path(parsed_url.path).suffix.lower()
     if ext not in [".pdf", ".docx", ".eml"]:
-        raise ValueError(f"Unsupported file type: {ext}")
+        raise ValueError(f"Unsupported file type: {ext}. Only PDF, DOCX, and EML are supported.")
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
         tmp_file.write(response.content)
         tmp_path = tmp_file.name
 
-    if ext == ".pdf":
-        # loader = LLMSherpaFileLoader(
-        # file_path=tmp_path,
-        # new_indent_parser=True,
-        # apply_ocr=True,
-        # strategy="chunks",
-        # llmsherpa_api_url="http://localhost:5010/api/parseDocument?renderFormat=all"
-        loader = PyMuPDFLoader(tmp_path)
-    elif ext == ".docx":
-        # loader = LLMSherpaFileLoader(
-        # file_path=tmp_path,
-        # new_indent_parser=True,
-        # apply_ocr=True,
-        # strategy="chunks",
-        # llmsherpa_api_url="http://localhost:5010/api/parseDocument?renderFormat=all"
-        # )
-        loader =  Docx2txtLoader(tempfile)
-    elif ext == ".eml":
-        loader = UnstructuredEmailLoader(tmp_path)
-    else:
-        raise ValueError(f"No loader configured for: {ext}")
+    try:
+        if ext == ".pdf":
+            # loader = LLMSherpaFileLoader(
+            #     file_path=tmp_path,
+            #     new_indent_parser=True,
+            #     apply_ocr=True,
+            #     strategy="chunks",
+            #     llmsherpa_api_url="http://localhost:5010/api/parseDocument?renderFormat=all"
+            # )
+            loader = PyMuPDFLoader(tmp_path)
+        elif ext == ".docx":
+            # loader = LLMSherpaFileLoader(
+            #     file_path=tmp_path,
+            #     new_indent_parser=True,
+            #     apply_ocr=True,
+            #     strategy="chunks",
+            #     llmsherpa_api_url="http://localhost:5010/api/parseDocument?renderFormat=all"
+            # )
+            loader = Docx2txtLoader(tmp_path)
+        elif ext == ".eml":
+            loader = UnstructuredEmailLoader(tmp_path)
+        else:
+            raise ValueError(f"No loader configured for: {ext}")
 
-    documents = loader.load()
-    return documents
-
-
-
-# async def parse_pdf_from_url(url: str):
-
-#     response = requests.get(url)
-#     response.raise_for_status()
-
-#     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-#         tmp_file.write(response.content)
-#         tmp_path = tmp_file.name
-
-#     # parser = LlamaParse(
-#     #     result_type="markdown",   
-#     #     output_tables_as_HTML=True,
-#     #     api_key=LLAMA_CLOUD_API_KEY
-#     # )
-#     parser = PyMuPDFLoader(tmp_path)
-
-#     # documents = parser.load_data(tmp_path)
-#     documents = parser.load()
-#     return documents
+        documents = loader.load()
+        return documents
+    finally:
+        # Clean up temporary file
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 def split_documents(parsed_docs, chunk_size=1000, chunk_overlap=200):
     all_chunks = []
@@ -87,13 +69,6 @@ def split_documents(parsed_docs, chunk_size=1000, chunk_overlap=200):
     )
 
     try:
-        # doc_obj = [LCDocument(
-        #     page_content=doc.text_resource.text,
-        #     metadata=doc.metadata,
-        #     id=doc.id_
-        # ) for doc in parsed_docs]
-        # # doc_obj = 
-        
         chunks = splitter.split_documents(parsed_docs)
         all_chunks.extend(chunks)
     except Exception as e:
