@@ -58,7 +58,7 @@ async def run_query(
     print(f"embedding generation time:  {time.time()-e_time}")
     
     s_time = time.time()
-    try:
+    try: 
         db = FAISS.from_documents(chunks, embedding_model)
         retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 10,"lambda_mult":0.5})
 
