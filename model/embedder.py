@@ -1,7 +1,7 @@
 import os
 from langchain.embeddings.base import Embeddings
 # from langchain_community.embeddings import CohereEmbeddings
-from langchain_cohere import CohereEmbeddings
+# from langchain_cohere import CohereEmbeddings
 from langchain_huggingface import HuggingFaceEmbeddings
 # from sentence_transformers import SentenceTransformer
 from typing import List
@@ -51,24 +51,24 @@ class NomicEmbeddings(Embeddings):
         return result["embeddings"][0]
 
 
-class CustomCohereEmbeddings(Embeddings):
-    def __init__(self):
-        super().__init__()
-        api_key = os.getenv("CO_API_KEY")
-        if not api_key:
-            raise ValueError("CO_API_KEY not found in environment variables.")
+# class CustomCohereEmbeddings(Embeddings):
+#     def __init__(self):
+#         super().__init__()
+#         api_key = os.getenv("CO_API_KEY")
+#         if not api_key:
+#             raise ValueError("CO_API_KEY not found in environment variables.")
 
-        self.model = CohereEmbeddings(
-            cohere_api_key=api_key,
-            model="embed-english-v3.0",
-            user_agent='langchain'
-        )
+#         self.model = CohereEmbeddings(
+#             cohere_api_key=api_key,
+#             model="embed-english-v3.0",
+#             user_agent='langchain'
+#         )
 
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return self.model.embed_documents(texts)
+#     def embed_documents(self, texts: list[str]) -> list[list[float]]:
+#         return self.model.embed_documents(texts)
 
-    def embed_query(self, text: str) -> list[float]:
-        return self.model.embed_query(text)
+#     def embed_query(self, text: str) -> list[float]:
+#         return self.model.embed_query(text)
 
 class HuggingFaceEmbed():
     def __init__(self):
