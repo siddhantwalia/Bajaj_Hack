@@ -1,14 +1,14 @@
+import os
 from langchain.embeddings.base import Embeddings
 # from langchain_community.embeddings import CohereEmbeddings
 from langchain_cohere import CohereEmbeddings
 from langchain_huggingface import HuggingFaceEmbeddings
 # from sentence_transformers import SentenceTransformer
 from typing import List
-import os
 from nomic import embed,login
 # from nomic.atlas import AtlasProject
-import os
 from dotenv import load_dotenv
+from more_itertools import chunked
 
 
 load_dotenv()
@@ -21,6 +21,18 @@ class NomicEmbeddings(Embeddings):
             raise ValueError("NOMIC_API_KEY not found in environment variables.")
         os.environ["NOMIC_TOKEN"] =api_key
         login(api_key) 
+
+
+    # def embed_documents(self, texts: list[str]) -> list[list[float]]:
+    #     all_embeddings = []
+    #     # for batch in chunked(texts,512):  # Adjust based on limits
+    #         result = embed.text(
+    #             texts=,
+    #             model="nomic-embed-text-v1.5",
+    #             task_type="search_document"
+    #         )
+    #         # all_embeddings.extend(result["embeddings"])
+    #     return all_embeddings
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         result = embed.text(
