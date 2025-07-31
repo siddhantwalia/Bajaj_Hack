@@ -8,7 +8,7 @@ from typing import List
 from nomic import embed,login
 # from nomic.atlas import AtlasProject
 from dotenv import load_dotenv
-from more_itertools import chunked
+# from more_itertools import chunked
 
 
 load_dotenv()

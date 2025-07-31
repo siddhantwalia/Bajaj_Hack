@@ -30,7 +30,7 @@ class QueryRequest(BaseModel):
 async def home():
     return {"home": "This is our api endpoint"}
 
-@app.post("/hackrx/run")
+@app.get("/hackrx/run")
 async def hehe():
     return {"input_format":"documents : url ,questions : [1,2,3,4,5]"}
 
@@ -86,7 +86,9 @@ async def run_query(
     
     async def get_answer(question): 
         try:
-            logger.info(question)
+            # logger.info(question)
+            logger.info(f"Retrieving context for question: {question}")
+            # print(question)
             context_docs = retriever.invoke(question)
             context = "\n".join([doc.page_content for doc in context_docs])
             inputs = {"context": context, "question": question}
