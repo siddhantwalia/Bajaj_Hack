@@ -31,6 +31,10 @@ async def home():
     return {"home": "This is our api endpoint"}
 
 @app.post("/hackrx/run")
+async def hehe():
+    return {"input_format":"documents : url ,questions : [1,2,3,4,5]"}
+
+@app.post("/hackrx/run")
 async def run_query(
     req: QueryRequest,
     Authorization: str = Header(default=None, alias="Authorization")
@@ -82,6 +86,7 @@ async def run_query(
     
     async def get_answer(question): 
         try:
+            logger.info(question)
             context_docs = retriever.invoke(question)
             context = "\n".join([doc.page_content for doc in context_docs])
             inputs = {"context": context, "question": question}

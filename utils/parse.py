@@ -1,6 +1,7 @@
 import nest_asyncio
 import os
 import requests
+import logging
 import tempfile
 from urllib.parse import urlparse
 from pathlib import Path
@@ -16,10 +17,14 @@ from langchain_community.document_loaders import (
 from langchain_community.document_loaders.llmsherpa import LLMSherpaFileLoader
 nest_asyncio.apply()
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 async def parse_document_from_url(url: str):
     response = requests.get(url)
     response.raise_for_status()
     parsed_url = urlparse(url)
+    logger.info(url)
     ext = Path(parsed_url.path).suffix.lower()
     if ext not in [".pdf", ".docx", ".eml"]:
         raise ValueError(f"Unsupported file type: {ext}. Only PDF, DOCX, and EML are supported.")
