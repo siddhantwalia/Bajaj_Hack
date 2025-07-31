@@ -19,6 +19,9 @@ app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Global in-memory cache for FAISS retrievers (key: document URL, value: retriever)
+faiss_cache = {}  # Add this here for shared access across requests
+
 class QueryRequest(BaseModel):
     documents: str
     questions: List[str]
@@ -36,36 +39,46 @@ async def run_query(
     if not Authorization:
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
     
-    p_time = time.time()
-    try:
-        parse_doc = await parse_document_from_url(req.documents)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error parsing document: {str(e)}")
-    logger.info(f"Parsing time: {time.time() - p_time}")
-    
-    c_time = time.time()
-    try:
-        chunks = split_documents(parse_doc)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Splitting failed: {str(e)}")
-    
-    texts = [chunk.page_content for chunk in chunks]
-    logger.info(f"Chunking time: {time.time() - c_time}")
-    
-    e_time = time.time()
-    try:
-        embedding_model = NomicEmbeddings()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Embedding failed: {str(e)}")
-    logger.info(f"Embedding generation time: {time.time() - e_time}")
-    
-    s_time = time.time()
-    try: 
-        db = FAISS.from_documents(chunks, embedding_model)
-        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 10, "lambda_mult": 0.5})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Vector DB error: {str(e)}")
-    logger.info(f"Storing VDB time: {time.time() - s_time}")
+    cache_key = req.documents  
+    if cache_key in faiss_cache:
+        logger.info("Using cached FAISS retriever")
+        retriever = faiss_cache[cache_key]
+    else:
+
+        p_time = time.time()
+        try:
+            parse_doc = await parse_document_from_url(req.documents)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Error parsing document: {str(e)}")
+        logger.info(f"Parsing time: {time.time() - p_time}")
+        
+        c_time = time.time()
+        try:
+            chunks = split_documents(parse_doc)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Splitting failed: {str(e)}")
+        
+        texts = [chunk.page_content for chunk in chunks]
+        logger.info(f"Chunking time: {time.time() - c_time}")
+        
+        e_time = time.time()
+        try:
+            embedding_model = NomicEmbeddings()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Embedding failed: {str(e)}")
+        logger.info(f"Embedding generation time: {time.time() - e_time}")
+        
+        s_time = time.time()
+        try: 
+            db = FAISS.from_documents(chunks, embedding_model)
+            retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 10, "lambda_mult": 0.5})
+            
+
+            faiss_cache[cache_key] = retriever
+            logger.info("FAISS retriever cached")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Vector DB error: {str(e)}")
+        logger.info(f"Storing VDB time: {time.time() - s_time}")
     
     async def get_answer(question): 
         try:
