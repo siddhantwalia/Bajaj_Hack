@@ -10,9 +10,14 @@ from utils import parse_document_from_url, split_documents
 from langchain_community.vectorstores import FAISS
 from langchain_core.runnables import RunnablePassthrough
 from dotenv import load_dotenv
+import logging
 
 load_dotenv()
 app = FastAPI()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class QueryRequest(BaseModel):
     documents : str
@@ -77,9 +82,11 @@ async def run_query(
 
     # Final answer generator
     async def get_answer(question: str):
+        logger.info(f"Retrieving context for question: {question}")
         rewritten_question = await rewrite_question(question)
         context_docs = retriever.invoke(rewritten_question)
         context = "\n".join([doc.page_content for doc in context_docs])
+        # logger.info(f"Context retrieved for question: {context}")
         inputs = {"context": context, "question": question}
         try:
             answer = await (Prompt | llm).ainvoke(inputs)
@@ -100,5 +107,5 @@ async def run_query(
 
     # Run LLM calls concurrently for all questions
     answers = await asyncio.gather(*[get_answer(q) for q in req.questions])
-    print(f"Total time: {time.time() - start:.2f}s")
+    logger.info(f"Total time: {time.time() - start:.2f}s")
     return {"answers": answers}
