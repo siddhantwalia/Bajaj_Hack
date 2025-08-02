@@ -91,6 +91,7 @@ async def run_query(
             # print(question)
             context_docs = retriever.invoke(question)
             context = "\n".join([doc.page_content for doc in context_docs])
+            # logger.info(f"Context retrieved for question: {context}")
             inputs = {"context": context, "question": question}
             answer = await (Prompt | llm).ainvoke(inputs) 
             return clean_output(answer)
