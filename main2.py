@@ -69,9 +69,11 @@ async def run_query(
     # Query rewriting layer using GPT-4.1 Mini
     async def rewrite_question(original_question: str) -> str:
         prompt_text = (
-            "Rewrite the following question so that it is formal, clear, and matches the style used in policy documents. "
-            "Ensure full entities and unambiguous phrasing:\n\n"
-            f"Question: {original_question}"
+                "Rewrite the following question to ensure it is formal, clear, and consistent with the style and tone used in policy documents. "
+                "Use complete entity names, avoid ambiguity, and ensure precise phrasing to facilitate accurate context retrieval for further analysis or response. "
+                "The rewritten question should be standalone and fully comprehensible without additional context.\n\n"
+                f"Original Question: {original_question}\n\n"
+                "Rewritten Question:"
         )
         try:
             rewritten = await rewrite_llm.ainvoke(prompt_text)
