@@ -9,7 +9,7 @@ from nomic import embed,login
 # from nomic.atlas import AtlasProject
 from dotenv import load_dotenv
 # from more_itertools import chunked
-
+from openai import OpenAI
 
 load_dotenv()
 
@@ -82,3 +82,28 @@ class HuggingFaceEmbed():
     def embed_query(self, text: str) -> List[float]:
         return self.embeddings(text, convert_to_numpy=True).tolist()
 
+
+
+class OpenAITextEmbedding3Small(Embeddings):
+    def __init__(self, model: str = "text-embedding-3-small", dimensions: int = 1536):
+        super(OpenAITextEmbedding3Small, self).__init__()
+        self.model = model
+        self.dimensions = dimensions
+        self.api_key = os.getenv("OPEN_AI_KEY")
+        if not self.api_key:
+            raise ValueError("OPENAI_API_KEY not found in environment variables.")
+        self.client = OpenAI(api_key=self.api_key)
+
+    def embed_documents(self, texts):
+        return [self._embed(text) for text in texts]
+
+    def embed_query(self, text):
+        return self._embed(text)
+
+    def _embed(self, text):
+        response = self.client.embeddings.create(
+            input=text,
+            model=self.model,
+            dimensions=self.dimensions  # optional, defaults to full dimensionality (1536 for this model)
+        )
+        return response.data[0].embedding

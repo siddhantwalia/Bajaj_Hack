@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request, Header, HTTPException
 from pydantic import BaseModel
 from langchain_core.prompts import PromptTemplate
 from typing import List
-from model import Prompt, llm,NomicEmbeddings,HuggingFaceEmbed,rewrite_llm
+from model import Prompt, llm,NomicEmbeddings,HuggingFaceEmbed,rewrite_llm,OpenAITextEmbedding3Small
 from utils import parse_document_from_url, split_documents
 from langchain_community.vectorstores import FAISS
 from langchain_core.runnables import RunnablePassthrough
@@ -63,14 +63,14 @@ async def run_query(
     # Create vector store
     try:
         db = FAISS.from_documents(chunks, embedding_model)
-        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 10, "lambda_mult": 0.5})
+        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 5, "lambda_mult": 0.5})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Vector DB error: {str(e)}")
 
     # Query rewriting layer using GPT-4.1 Mini
     async def rewrite_question(original_question: str, first_doc_chunk: str = "") -> str:
         prompt_template_str = """
-        You are an expert query rewriter for a document retrieval system using Nomic embeddings and MMR (Maximum Marginal Relevance) search. 
+        You are an expert query rewriter for a document retrieval system using OPEN AI embeddings text-embedding-3-small and MMR (Maximum Marginal Relevance) search. 
         Your task is to rewrite the original question into an optimized query that maximizes retrieval accuracy. 
         Focus on making it easy for the retriever to match relevant document chunks by incorporating synonyms, related terms, and key phrases that align with the document's content. 
         Do NOT make the rewritten question formal, standalone, or complete sentences—keep it concise, keyword-rich, and query-like (e.g., similar to a search engine query). 
@@ -114,8 +114,8 @@ async def run_query(
     async def get_answer(question: str):
         logger.info(f"Retrieving context for question: {question}")
         rewritten_question = await rewrite_question(question,texts[0])
-        logger.info(f"question reframed {rewritten_question}")
-        logger.info("/////////////////////////////////////////////////////////////")
+        # logger.info(f"question reframed {rewritten_question}")
+        # logger.info("/////////////////////////////////////////////////////////////")
         context_docs = retriever.invoke(rewritten_question)
         context = "\n".join([doc.page_content for doc in context_docs])
         # logger.info(f"Context retrieved for question: {context}")
