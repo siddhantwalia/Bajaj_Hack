@@ -25,17 +25,17 @@ ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
 ENV TESSERACT_CMD=/usr/bin/tesseract
 
 # Upgrade pip first
-RUN pip install --upgrade pip
+# RUN pip install --upgrade pip
 
 # Copy and verify requirements file
 COPY requirements.txt .
-RUN ls -la requirements.txt && head -10 requirements.txt
+# RUN ls -la requirements.txt && head -10 requirements.txt
 
-# Install Python packages with verbose output for debugging
-# RUN pip install --no-cache-dir --verbose -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Install additional packages
-# RUN pip install --no-cache-dir nomic python-dotenv
+
+# Optional: install nomic CLI and python-dotenv
+RUN pip install --no-cache-dir nomic python-dotenv
 
 # Copy application files
 COPY . .
