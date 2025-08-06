@@ -29,6 +29,8 @@ nest_asyncio.apply()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+pytesseract.pytesseract.tesseract_cmd = r'D:\Tesseract\tesseract.exe'
+
 def extract_text_from_image_with_tesseract(image_path: str) -> str:
     """Extract text from image using Tesseract OCR"""
     try:
@@ -107,7 +109,7 @@ async def parse_document_from_url(url: str):
         ext = '.pptx'
     else:
         ext = Path(parsed_url.path).suffix.lower()
-        if ext not in ['.pdf', '.docx', '.eml', '.csv', '.xlsx', '.pptx', '.jpg', '.jpeg', '.png']:
+        if ext not in ['.pdf', '.docx', '.eml', '.csv', '.xlsx', '.pptx', '.jpg', '.jpeg', '.png','.zip']:
             raise ValueError(f"Unsupported file type: {ext or content_type}")
 
     # Save to temporary file
