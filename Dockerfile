@@ -25,19 +25,18 @@ ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
 ENV TESSERACT_CMD=/usr/bin/tesseract
 
 # Upgrade pip first
-# RUN pip install --upgrade pip
+RUN pip install --upgrade pip
 
-# Copy and verify requirements file
+# Copy requirements file FIRST
 COPY requirements.txt .
-# RUN ls -la requirements.txt && head -10 requirements.txt
 
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-
-# Optional: install nomic CLI and python-dotenv
+# Install additional packages
 RUN pip install --no-cache-dir nomic python-dotenv
 
-# Copy application files
+# Copy application files AFTER installing dependencies
 COPY . .
 
 # Copy and set permissions for the entrypoint
@@ -47,5 +46,4 @@ RUN chmod +x /entrypoint.sh
 EXPOSE 8000
 ENV PORT=8000
 
-# Set the entrypoint to the script
 ENTRYPOINT ["/entrypoint.sh"]
