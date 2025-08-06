@@ -12,7 +12,10 @@ from langchain_core.documents import Document as LCDocument
 from langchain_community.document_loaders import (
     PyMuPDFLoader,
     Docx2txtLoader,
-    UnstructuredEmailLoader
+    UnstructuredEmailLoader,
+    CSVLoader,
+    UnstructuredExcelLoader,
+    UnstructuredPowerPointLoader
 )
 from langchain_community.document_loaders.llmsherpa import LLMSherpaFileLoader
 nest_asyncio.apply()
@@ -36,13 +39,13 @@ async def parse_document_from_url(url: str):
         # Fallback to URL extension if Content-Type is unclear
         parsed_url = urlparse(url)
         ext = Path(parsed_url.path).suffix.lower()
-        if ext not in ['.pdf', '.docx', '.eml']:
-            raise ValueError(f"Unsupported file type: {ext or content_type}. Only PDF, DOCX, and EML are supported.")
-        
+        if ext not in ['.pdf', '.docx', '.eml', '.csv', '.xlsx', '.pptx']:
+            raise ValueError(f"Unsupported file type: {ext or content_type}. Only PDF, DOCX, EML, CSV, XLSX, and PPTX are supported.")
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
         tmp_file.write(response.content)
         tmp_path = tmp_file.name
-
+        
     try:
         if ext == ".pdf":
             loader = PyMuPDFLoader(tmp_path)
@@ -50,11 +53,18 @@ async def parse_document_from_url(url: str):
             loader = Docx2txtLoader(tmp_path)
         elif ext == ".eml":
             loader = UnstructuredEmailLoader(tmp_path)
+        elif ext == ".csv":
+            loader = CSVLoader(file_path=tmp_path)
+        elif ext == ".xlsx":
+            loader = UnstructuredExcelLoader(file_path=tmp_path)
+        elif ext == ".pptx":
+            loader = UnstructuredPowerPointLoader(file_path=tmp_path)
         else:
             raise ValueError(f"No loader configured for: {ext}")
 
         documents = loader.load()
         return documents
+
     finally:
         # Clean up temporary file
         if os.path.exists(tmp_path):
