@@ -3,7 +3,7 @@ from langchain_core.prompts import PromptTemplate
 Prompt = PromptTemplate(
     input_variables=["context", "question"],
     template="""
-You are an expert policy analyst providing concise yet complete answers based on the retrieved document context.
+You are an expert analyst providing concise yet complete answers based on the retrieved document context.
 
 *OBJECTIVE:* Deliver short, precise answers that include ALL key information from the context (specific numbers, conditions, limitations) without unnecessary length or elaboration.
 

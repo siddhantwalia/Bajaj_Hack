@@ -114,11 +114,11 @@ async def run_query(
     async def get_answer(question: str):
         logger.info(f"Retrieving context for question: {question}")
         rewritten_question = await rewrite_question(question,texts[0])
-        # logger.info(f"question reframed {rewritten_question}")
+        logger.info(f"question reframed {rewritten_question}")
         # logger.info("/////////////////////////////////////////////////////////////")
         context_docs = retriever.invoke(rewritten_question)
         context = "\n".join([doc.page_content for doc in context_docs])
-        # logger.info(f"Context retrieved for question: {context}")
+        logger.info(f"Context retrieved for question: {context}")
         # with open("context.txt", "w",encoding="utf-8") as f:
         #     f.write(context)
         inputs = {"context": context, "question": question}
