@@ -5,14 +5,24 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Install system dependencies including Tesseract
 RUN apt-get update && apt-get install -y \
     build-essential \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender-dev \
+    libgl1-mesa-glx \
+    libgomp1 \
     curl \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    libtesseract-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Set Tesseract environment variables
+ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
+ENV TESSERACT_CMD=/usr/bin/tesseract
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
