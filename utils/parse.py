@@ -48,7 +48,7 @@ def extract_text_from_image_with_tesseract(image_path: str) -> str:
     except Exception as e:
         logger.error(f"Tesseract OCR failed for {image_path}: {e}")
         return ""
-
+ 
 def extract_images_from_pptx(pptx_path, output_dir="extracted_images"):
     """Extract images from PowerPoint presentation"""
     os.makedirs(output_dir, exist_ok=True)
