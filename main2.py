@@ -75,7 +75,8 @@ async def run_query(req: QueryRequest, Authorization: str = Header(default=None)
         raise HTTPException(status_code=401, detail="Missing Authorization header")
 
     if req.documents in faiss_cache:
-        retriever, texts = faiss_cache[req.documents]
+        db, texts = faiss_cache[req.documents]
+        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 3, "lambda_mult": 0.8})
         logger.info("Using cached FAISS retriever")
     else:
         try:
@@ -101,7 +102,7 @@ async def run_query(req: QueryRequest, Authorization: str = Header(default=None)
         try:
             db = FAISS.from_documents(chunks, embedding_model)
             retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 3, "lambda_mult": 0.8})
-            faiss_cache[req.documents] = (retriever, texts)
+            faiss_cache[req.documents] = (db, texts)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Vector store error: {e}")
 
@@ -122,7 +123,7 @@ async def run_query(req: QueryRequest, Authorization: str = Header(default=None)
                 inputs = {"context": "", "question": question}
                 answer = await (Prompt | llm).ainvoke(inputs)
                 return clean_output(answer)
-
+            logger.info(f"Context {context} for question {question}")
             inputs = {"context": context, "question": question}
             answer = await (Prompt | llm).ainvoke(inputs)
             return clean_output(answer)
