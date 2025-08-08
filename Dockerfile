@@ -24,7 +24,6 @@ RUN apt-get update && apt-get install -y \
 ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
 ENV TESSERACT_CMD=/usr/bin/tesseract
 
-<<<<<<< HEAD
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -33,21 +32,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir nomic python-dotenv
 
 # Copy application files (excluding entrypoint.sh for now)
-=======
-# Upgrade pip first
-RUN pip install --upgrade pip
-
-# Copy requirements file FIRST
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Install additional packages
-RUN pip install --no-cache-dir nomic python-dotenv
-
-# Copy application files AFTER installing dependencies
->>>>>>> c2155d028c854d822c4aa04fcc269acddd2a74ac
 COPY . .
 
 # Copy and set permissions for the entrypoint
