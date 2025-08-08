@@ -160,7 +160,7 @@ async def parse_document_from_url(url: str):
 
         else:
             raise ValueError(f"No loader configured for: {ext}")
-
+        logger.info(documents[0].page_content)
         logger.info(f"Successfully parsed document with {len(documents)} sections")
         return documents
 
