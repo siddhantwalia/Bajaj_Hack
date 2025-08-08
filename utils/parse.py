@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 # Tesseract OCR imports
 import pytesseract
+import httpx
 from PIL import Image
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -30,7 +31,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
-pytesseract.pytesseract.tesseract_cmd = r'D:\Tesseract'
+pytesseract.pytesseract.tesseract_cmd = r'D:\Tesseract\tesseract.exe'
 
 def extract_text_from_image_with_tesseract(image_path: str) -> str:
     """Extract text from image using Tesseract OCR"""
@@ -88,14 +89,19 @@ def extract_text_from_pptx_images_with_tesseract(pptx_path: str) -> str:
 
 # === Main document parser ===
 async def parse_document_from_url(url: str):
-    """Parse documents from URL and extract text content"""
-    response = requests.get(url)
-    response.raise_for_status()
-    parsed_url = urlparse(url)
+    """Parse documents from URL and extract text content (async, single HTTP request)."""
     logger.info(f"Parsing URL: {url}")
-    content_type = response.headers.get('Content-Type', '').lower()
 
-    # Determine file type
+    # Single async request
+    async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        content = resp.content
+        content_type = resp.headers.get("Content-Type", "").lower()
+
+    parsed_url = urlparse(url)
+
+    # Determine extension from content type or URL path
     if 'pdf' in content_type:
         ext = '.pdf'
     elif 'wordprocessingml.document' in content_type:
@@ -108,17 +114,22 @@ async def parse_document_from_url(url: str):
         ext = '.png'
     elif 'pptx' in content_type:
         ext = '.pptx'
+    elif 'csv' in content_type:
+        ext = '.csv'
+    elif 'excel' in content_type or 'spreadsheetml.sheet' in content_type:
+        ext = '.xlsx'
     else:
         ext = Path(parsed_url.path).suffix.lower()
-        if ext not in ['.pdf', '.docx', '.eml', '.csv', '.xlsx', '.pptx', '.jpg', '.jpeg', '.png','.zip']:
+        if ext not in ['.pdf', '.docx', '.eml', '.csv', '.xlsx', '.pptx', '.jpg', '.jpeg', '.png', '.zip']:
             raise ValueError(f"Unsupported file type: {ext or content_type}")
 
-    # Save to temporary file
+    # Save to temp file
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
-        tmp_file.write(response.content)
+        tmp_file.write(content)
         tmp_path = tmp_file.name
 
     try:
+        # Load based on extension
         if ext == ".pdf":
             loader = PyMuPDFLoader(tmp_path)
             documents = loader.load()
@@ -140,12 +151,10 @@ async def parse_document_from_url(url: str):
             documents = loader.load()
 
         elif ext in ['.jpg', '.jpeg', '.png']:
-            # Use Tesseract for image OCR
             text = extract_text_from_image_with_tesseract(tmp_path)
             documents = [LCDocument(page_content=text)]
 
         elif ext == ".pptx":
-            # Extract text from PowerPoint images using Tesseract
             ppt_text = extract_text_from_pptx_images_with_tesseract(tmp_path)
             documents = [LCDocument(page_content=ppt_text)]
 
@@ -156,18 +165,18 @@ async def parse_document_from_url(url: str):
         return documents
 
     finally:
-        # Clean up temporary file
+        # Always clean up
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
 # === Split into LangChain-compatible chunks ===
-def split_documents(parsed_docs, chunk_size=1000, chunk_overlap=200):
+def split_documents(parsed_docs, chunk_size=500, chunk_overlap=70):
     """Split documents into smaller chunks for processing"""
     all_chunks = []
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
-        separators=["\n\n", "\n", ".", " ", ""]
+        separators=["\n\n", "\n", ".", " "]
     )
     
     try:
