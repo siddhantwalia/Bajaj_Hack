@@ -123,7 +123,7 @@ async def run_query(req: QueryRequest, Authorization: str = Header(default=None)
                 inputs = {"context": "", "question": question}
                 answer = await (Prompt | llm).ainvoke(inputs)
                 return clean_output(answer)
-            logger.info(f"Context {context} for question {question}")
+            # logger.info(f"Context {context} for question {question}")
             inputs = {"context": context, "question": question}
             answer = await (Prompt | llm).ainvoke(inputs)
             return clean_output(answer)
