@@ -99,22 +99,25 @@ async def execute_plan(plan: str, context_text: str, auth_token: str, question: 
 
     # Final answer
     final_prompt = f"""
-You are a helpful assistant.
-Always respond in the SAME LANGUAGE as the original question.
-Keep the answer concise — no more than 2–3 sentences.
-Include all important details from executed steps and context.
+    You are a helpful assistant.
 
-Question:
-{question}
+    First, detect the language of the question **from the question text only** — do NOT infer it from the document.
+    Then, answer in that same language.
 
-Context:
-{context_text}
+    Keep the answer concise (max 2–3 sentences) and include the details from the executed steps and context.
+    No need to tell the language we are using in the final answer
+    Question:
+    {question}
 
-Executed Steps with Results:
-{executed_plan}
+    Context:
+    {context_text}
 
-Final Answer:
-"""
+    Executed Steps with Results:
+    {executed_plan}
+
+    Final Answer:
+    """
+
     result = await llm.ainvoke(final_prompt)
     return result.content if hasattr(result, "content") else str(result)
 
