@@ -55,7 +55,7 @@ Plan:
     return result.content if hasattr(result, "content") else str(result)
 
 # ===== Execute Plan =====
-async def execute_plan(plan: str, context_text: str, auth_token: str) -> str:
+async def execute_plan(plan: str, context_text: str, auth_token: str,question:str) -> str:
     executed_plan = plan
 
     async with httpx.AsyncClient() as client:
@@ -111,7 +111,9 @@ async def execute_plan(plan: str, context_text: str, auth_token: str) -> str:
     Always respond in the SAME LANGUAGE as the original question.
     Keep the answer concise — no more than 2–3 sentences.
     Ensure you include all key details from the executed steps and context.
-
+    question:
+    {question}
+    
     Context:
     {context_text}
 
@@ -167,7 +169,7 @@ async def process_question_rag_agent(question: str, retriever, texts, full_doc_t
 
     # Plan → Execute → Answer
     plan = await ask_gpt_for_plan(question, context_for_plan)
-    return await execute_plan(plan, context_for_plan, Authorization)
+    return await execute_plan(plan, context_for_plan, Authorization,question)
 
 # ===== API Route =====
 @app.post("/hackrx/run")
