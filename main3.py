@@ -7,7 +7,6 @@ from pydantic import BaseModel
 from typing import List
 from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
-from langdetect import detect
 
 from model import llm, NomicEmbeddings, rewrite_llm
 from utils import parse_document_from_url, split_documents
@@ -23,7 +22,7 @@ class QueryRequest(BaseModel):
     documents: str
     questions: List[str]
 
-# ===== Helper: detect non-English (non-ASCII) =====
+# ===== Detect non-English =====
 def has_non_ascii(s: str) -> bool:
     return any(ord(c) > 127 for c in s)
 
@@ -66,8 +65,7 @@ async def execute_plan(plan: str, context_text: str, auth_token: str, question: 
             # GET request
             m_get = re.search(r"GET\s+(https?://\S+)", line_stripped)
             if m_get:
-                url = m_get.group(1).strip()
-                url = re.sub(r"[\`\'\"\,\.\)\;]+$", "", url)
+                url = re.sub(r"[\`\'\"\,\.\)\;]+$", "", m_get.group(1).strip())
                 try:
                     resp = await client.get(url, headers={"Authorization": auth_token})
                     resp.raise_for_status()
@@ -88,39 +86,23 @@ async def execute_plan(plan: str, context_text: str, auth_token: str, question: 
             if line_stripped.upper().startswith("EXTRACT_REGEX:"):
                 regex_text = line_stripped[len("EXTRACT_REGEX:"):].strip()
                 try:
-                    pattern = re.compile(regex_text)
-                    matches = pattern.findall(context_text)
+                    matches = re.findall(regex_text, context_text)
                     if not matches:
                         regex_result = "<NO MATCH>"
                     else:
-                        formatted = []
-                        for m in matches:
-                            if isinstance(m, tuple):
-                                formatted.append(" | ".join(m))
-                            else:
-                                formatted.append(str(m))
+                        formatted = [" | ".join(m) if isinstance(m, tuple) else str(m) for m in matches]
                         regex_result = "\n".join(formatted[:20])
                 except re.error as re_err:
                     regex_result = f"<BAD REGEX: {re_err}>"
                 executed_plan = executed_plan.replace(line, f"{line} → {regex_result}")
                 continue
 
-    # Detect language
-    try:
-        question_lang = detect(question)
-    except:
-        question_lang = "en"
-
-    lang_instruction = (
-        f"Respond in {question_lang} language." if question_lang != "en"
-        else "Respond in English."
-    )
-
-    # Ask GPT for final answer
+    # Final answer
     final_prompt = f"""
-{lang_instruction}
+You are a helpful assistant.
+Always respond in the SAME LANGUAGE as the original question.
 Keep the answer concise — no more than 2–3 sentences.
-Ensure you include all key details from the executed steps and context.
+Include all important details from executed steps and context.
 
 Question:
 {question}
@@ -143,9 +125,7 @@ def perform_lookup(instruction: str, document_text: str) -> str:
     if quoted:
         results = []
         for q in quoted:
-            for line in doc.splitlines():
-                if q.lower() in line.lower():
-                    results.append(line.strip())
+            results.extend([line.strip() for line in doc.splitlines() if q.lower() in line.lower()])
         if results:
             return "\n".join(results[:20])
 
@@ -161,21 +141,19 @@ def perform_lookup(instruction: str, document_text: str) -> str:
 
     return "<LOOKUP FAILED>"
 
-# ===== Main processing =====
+# ===== Main Processing =====
 async def process_question_rag_agent(question: str, retriever, texts, full_doc_text: str, Authorization: str):
     logger.info(f"Processing question: {question}")
 
-    # Retrieve chunks
     rewritten = await rewrite_llm.ainvoke(question)
     query = rewritten.content if hasattr(rewritten, "content") else str(rewritten)
-    context_docs = await asyncio.to_thread(retriever.invoke, query)
-    context_text = "\n".join([doc.page_content for doc in context_docs]) if context_docs else ""
 
-    # If non-English, use full doc for better context
-    if has_non_ascii(question):
-        context_for_plan = full_doc_text
-    else:
-        context_for_plan = context_text or full_doc_text
+    # Retrieve chunks
+    retrieved_docs = await asyncio.to_thread(retriever.invoke, query)
+    retrieved_text = "\n".join([doc.page_content for doc in retrieved_docs]) if retrieved_docs else ""
+
+    # Merge retrieval with full doc
+    context_for_plan = (retrieved_text + "\n" + full_doc_text).strip()
 
     # Plan → Execute → Answer
     plan = await ask_gpt_for_plan(question, context_for_plan)
@@ -196,13 +174,13 @@ async def run_query(req: QueryRequest, Authorization: str = Header(default=None)
         parsed_doc = await parse_document_from_url(req.documents)
         chunks = split_documents(parsed_doc)
         texts = [chunk.page_content for chunk in chunks]
-        full_doc_text = "\n".join([chunk.page_content for chunk in chunks])
+        full_doc_text = "\n".join(texts)
         embedding_model = NomicEmbeddings()
         db = FAISS.from_documents(chunks, embedding_model)
         retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 8, "lambda_mult": 0.8})
         faiss_cache[req.documents] = (db, texts, full_doc_text)
 
-    # Process all questions in parallel
+    # Parallel execution
     answers = await asyncio.gather(*[
         process_question_rag_agent(q, retriever, texts, full_doc_text, Authorization)
         for q in req.questions
