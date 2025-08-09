@@ -11,8 +11,8 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 OPEN_AI_KEY = os.getenv("OPEN_AI_KEY")
 # os.environ['GROQ_API_KEY'] = GROQ_API_KEY
 
-GROQ_Model = "gemma2-9b-it"
-Cohere_Model = "command-r"
+# GROQ_Model = "gemma2-9b-it"
+# Cohere_Model = "command-r"
 OPEN_AI_Model = "gpt-4.1-mini-2025-04-14"
 # OPEN_AI_Model = "gpt-5-mini-2025-08-07"
 # OPEN_AI_Model2 = "gpt-4.1-2025-04-14"
