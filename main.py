@@ -1,117 +1,92 @@
-import os
-import re
 import asyncio
-import time
 import logging
-from fastapi import FastAPI, Request, Header, HTTPException
+import httpx
+import re
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from typing import List
-from model import Prompt, llm, NomicEmbeddings, HuggingFaceEmbed
-from utils import parse_document_from_url, split_documents
-from langchain_community.vectorstores import FAISS
-from langchain_core.runnables import RunnablePassthrough
 from dotenv import load_dotenv
+from utils import parse_document_from_url
+from model import llm  # Your GPT model wrapper
 
 load_dotenv()
 app = FastAPI()
-
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Global in-memory cache for FAISS retrievers (key: document URL, value: retriever)
-faiss_cache = {}  # Add this here for shared access across requests
 
 class QueryRequest(BaseModel):
     documents: str
     questions: List[str]
 
-@app.get('/')
-async def home():
-    return {"home": "This is our api endpoint"}
 
-@app.get("/hackrx/run")
-async def hehe():
-    return {"input_format":"documents : url ,questions : [1,2,3,4,5]"}
+async def ask_gpt_for_plan(question: str, document_text: str) -> str:
+    """Ask GPT for a detailed step-by-step plan to get the answer."""
+    prompt = f"""
+You are an AI assistant that reads documents and figures out exactly how to answer a question.
 
-@app.post("/hackrx/run")
-async def run_query(
-    req: QueryRequest,
-    Authorization: str = Header(default=None, alias="Authorization")
-):
-    start = time.time()
+Document:
+{document_text}
+
+Question:
+{question}
+
+Instructions:
+1. Read the document carefully.
+2. Make a clear, numbered step-by-step plan to get the final answer.
+3. Include any API calls explicitly (e.g., GET https://...).
+4. If a value must be looked up from the document, describe exactly how.
+5. Do NOT give the final answer yet, only the plan.
+
+Plan:
+"""
+    result = await llm.ainvoke(prompt)
+    return result.content if hasattr(result, "content") else str(result)
+
+
+async def execute_plan(plan: str, document_text: str, auth_token: str) -> str:
+    """Very simple executor: runs API calls mentioned in plan and substitutes results."""
+    # Example: detect and run GET requests
+    async with httpx.AsyncClient() as client:
+        for line in plan.splitlines():
+            match = re.search(r"GET\s+(https?://\S+)", line)
+
+            if match:
+                url = match.group(1).strip()
+                url = re.sub(r"[\`\'\"\,\.\)]*$", "", url)  # strip unwanted chars
+                resp = await client.get(url, headers={"Authorization": auth_token})
+                resp.raise_for_status()
+                value = resp.text.strip().replace('"', '')
+                plan = plan.replace(line, f"{line} → {value}")
+
+        match = re.search(r"GET\s+(https?://\S+)", line)
+    
+    # Ask GPT to now produce final answer based on executed steps
+    final_prompt = f"""
+Document:
+{document_text}
+
+Executed Steps with Results:
+{plan}
+
+Now, using the results above, give the final answer to the question clearly.
+"""
+    result = await llm.ainvoke(final_prompt)
+    return result.content if hasattr(result, "content") else str(result)
+
+
+@app.post("/run-agent")
+async def run_agent(req: QueryRequest, Authorization: str = Header(default=None)):
     if not Authorization:
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
-    
-    cache_key = req.documents  
-    if cache_key in faiss_cache:
-        logger.info("Using cached FAISS retriever")
-        retriever = faiss_cache[cache_key]
-    else:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-        p_time = time.time()
-        try:
-            parse_doc = await parse_document_from_url(req.documents)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Error parsing document: {str(e)}")
-        logger.info(f"Parsing time: {time.time() - p_time}")
-        
-        c_time = time.time()
-        try:
-            chunks = split_documents(parse_doc)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Splitting failed: {str(e)}")
-        
-        texts = [chunk.page_content for chunk in chunks]
-        logger.info(f"Chunking time: {time.time() - c_time}")
-        
-        e_time = time.time()
-        try:
-            embedding_model = NomicEmbeddings()
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Embedding failed: {str(e)}")
-        logger.info(f"Embedding generation time: {time.time() - e_time}")
-        
-        s_time = time.time()
-        try: 
-            db = FAISS.from_documents(chunks, embedding_model)
-            retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 10, "lambda_mult": 0.5})
-            
+    parsed_doc = await parse_document_from_url(req.documents)
+    document_text = "\n".join([sec.page_content for sec in parsed_doc])
 
-            faiss_cache[cache_key] = retriever
-            logger.info("FAISS retriever cached")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Vector DB error: {str(e)}")
-        logger.info(f"Storing VDB time: {time.time() - s_time}")
-    
-    async def get_answer(question): 
-        try:
-            # logger.info(question)
-            logger.info(f"Retrieving context for question: {question}")
-            # print(question)
-            context_docs = retriever.invoke(question)
-            context = "\n".join([doc.page_content for doc in context_docs])
-            # logger.info(f"Context retrieved for question: {context}")
-            inputs = {"context": context, "question": question}
-            answer = await (Prompt | llm).ainvoke(inputs) 
-            return clean_output(answer)
-        except Exception as e:
-            logger.error(f"Error processing question '{question}': {str(e)}")
-            return f"Error: {str(e)}"
-    
-    def clean_output(answer):
-        if hasattr(answer, "content"): 
-            content = answer.content
-        else:
-            content = str(answer)
-        content = content.strip()
-        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
-        content = re.sub(r"\n{3,}", "\n\n", content)
-        return content
-    
-    llm_res = time.time()
-    answers = await asyncio.gather(*[get_answer(q) for q in req.questions])
-    logger.info(f"LLM response time: {time.time() - llm_res}")
-    
-    logger.info(f"Total time: {time.time() - start}")
+    answers = []
+    for question in req.questions:
+        logger.info(f"Processing: {question}")
+        plan = await ask_gpt_for_plan(question, document_text)
+        answer = await execute_plan(plan, document_text, Authorization)
+        answers.append(answer)
+
     return {"answers": answers}
