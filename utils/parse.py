@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 import pytesseract
 import httpx
 from PIL import Image
+from bs4 import BeautifulSoup  # <-- Added for HTML parsing
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document as LCDocument
@@ -33,24 +34,22 @@ logger = logging.getLogger(__name__)
 pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
 # pytesseract.pytesseract.tesseract_cmd = r'D:\Tesseract\tesseract.exe'
 
+
 def extract_text_from_image_with_tesseract(image_path: str) -> str:
     """Extract text from image using Tesseract OCR"""
     try:
-        # Open and process the image
         image = Image.open(image_path)
-        
-        # Extract text using Tesseract with better configuration
         text = pytesseract.image_to_string(
             image, 
-            config='--oem 3 --psm 6'  # OCR Engine Mode 3, Page Segmentation Mode 6
+            config='--oem 3 --psm 6'
         )
-        
         logger.info(f"Tesseract OCR successful for {image_path}")
         return text.strip()
     except Exception as e:
         logger.error(f"Tesseract OCR failed for {image_path}: {e}")
         return ""
- 
+
+
 def extract_images_from_pptx(pptx_path, output_dir="extracted_images"):
     """Extract images from PowerPoint presentation"""
     os.makedirs(output_dir, exist_ok=True)
@@ -70,6 +69,7 @@ def extract_images_from_pptx(pptx_path, output_dir="extracted_images"):
 
     return [os.path.join(output_dir, f) for f in os.listdir(output_dir)]
 
+
 def extract_text_from_pptx_images_with_tesseract(pptx_path: str) -> str:
     """Extract text from all images in a PowerPoint presentation using Tesseract"""
     image_paths = extract_images_from_pptx(pptx_path)
@@ -81,11 +81,11 @@ def extract_text_from_pptx_images_with_tesseract(pptx_path: str) -> str:
         if text:
             combined_text += f"\n--- Image Text ---\n{text}\n"
 
-        # Clean up extracted image
         if os.path.exists(image_path):
             os.remove(image_path)
 
     return combined_text
+
 
 # === Main document parser ===
 async def parse_document_from_url(url: str):
@@ -118,9 +118,14 @@ async def parse_document_from_url(url: str):
         ext = '.csv'
     elif 'excel' in content_type or 'spreadsheetml.sheet' in content_type:
         ext = '.xlsx'
+    elif 'html' in content_type or 'text/html' in content_type:
+        ext = '.html'
     else:
         ext = Path(parsed_url.path).suffix.lower()
-        if ext not in ['.pdf', '.docx', '.eml', '.csv', '.xlsx', '.pptx', '.jpg', '.jpeg', '.png', '.zip']:
+        if ext not in [
+            '.pdf', '.docx', '.eml', '.csv', '.xlsx', '.pptx',
+            '.jpg', '.jpeg', '.png', '.zip', '.html', '.htm'
+        ]:
             raise ValueError(f"Unsupported file type: {ext or content_type}")
 
     # Save to temp file
@@ -158,16 +163,25 @@ async def parse_document_from_url(url: str):
             ppt_text = extract_text_from_pptx_images_with_tesseract(tmp_path)
             documents = [LCDocument(page_content=ppt_text)]
 
+        elif ext in ['.html', '.htm']:
+            soup = BeautifulSoup(content, "html.parser")
+            for tag in soup(["script", "style"]):
+                tag.extract()
+            text = soup.get_text(separator="\n")
+            clean_text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+            documents = [LCDocument(page_content=clean_text)]
+
         else:
             raise ValueError(f"No loader configured for: {ext}")
-        logger.info(documents[0].page_content)
+
+        logger.info(documents[0].page_content[:500])
         logger.info(f"Successfully parsed document with {len(documents)} sections")
         return documents
 
     finally:
-        # Always clean up
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
 
 # === Split into LangChain-compatible chunks ===
 def split_documents(parsed_docs, chunk_size=500, chunk_overlap=70):
