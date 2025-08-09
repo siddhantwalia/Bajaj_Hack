@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import List
 from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
+from langdetect import detect
 
 from model import llm, NomicEmbeddings, rewrite_llm
 from utils import parse_document_from_url, split_documents
@@ -55,7 +56,7 @@ Plan:
     return result.content if hasattr(result, "content") else str(result)
 
 # ===== Execute Plan =====
-async def execute_plan(plan: str, context_text: str, auth_token: str,question:str) -> str:
+async def execute_plan(plan: str, context_text: str, auth_token: str, question: str) -> str:
     executed_plan = plan
 
     async with httpx.AsyncClient() as client:
@@ -104,27 +105,36 @@ async def execute_plan(plan: str, context_text: str, auth_token: str,question:st
                 executed_plan = executed_plan.replace(line, f"{line} → {regex_result}")
                 continue
 
+    # Detect language
+    try:
+        question_lang = detect(question)
+    except:
+        question_lang = "en"
+
+    lang_instruction = (
+        f"Respond in {question_lang} language." if question_lang != "en"
+        else "Respond in English."
+    )
+
     # Ask GPT for final answer
-# Ask GPT for final answer
     final_prompt = f"""
-    You are a helpful assistant.
-    Always respond in the SAME LANGUAGE as the original question.
-    Keep the answer concise — no more than 2–3 sentences.
-    Ensure you include all key details from the executed steps and context.
-    question:
-    {question}
-    
-    Context:
-    {context_text}
+{lang_instruction}
+Keep the answer concise — no more than 2–3 sentences.
+Ensure you include all key details from the executed steps and context.
 
-    Executed Steps with Results:
-    {executed_plan}
+Question:
+{question}
 
-    Final Answer:
-    """
+Context:
+{context_text}
+
+Executed Steps with Results:
+{executed_plan}
+
+Final Answer:
+"""
     result = await llm.ainvoke(final_prompt)
     return result.content if hasattr(result, "content") else str(result)
-
 
 # ===== Lookup Helper =====
 def perform_lookup(instruction: str, document_text: str) -> str:
@@ -169,7 +179,7 @@ async def process_question_rag_agent(question: str, retriever, texts, full_doc_t
 
     # Plan → Execute → Answer
     plan = await ask_gpt_for_plan(question, context_for_plan)
-    return await execute_plan(plan, context_for_plan, Authorization,question)
+    return await execute_plan(plan, context_for_plan, Authorization, question)
 
 # ===== API Route =====
 @app.post("/hackrx/run")
@@ -192,6 +202,7 @@ async def run_query(req: QueryRequest, Authorization: str = Header(default=None)
         retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 8, "lambda_mult": 0.8})
         faiss_cache[req.documents] = (db, texts, full_doc_text)
 
+    # Process all questions in parallel
     answers = await asyncio.gather(*[
         process_question_rag_agent(q, retriever, texts, full_doc_text, Authorization)
         for q in req.questions
