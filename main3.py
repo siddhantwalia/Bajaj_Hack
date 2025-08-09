@@ -105,18 +105,24 @@ async def execute_plan(plan: str, context_text: str, auth_token: str) -> str:
                 continue
 
     # Ask GPT for final answer
+# Ask GPT for final answer
     final_prompt = f"""
-Context:
-{context_text}
+    You are a helpful assistant.
+    Always respond in the SAME LANGUAGE as the original question.
+    Keep the answer concise — no more than 2–3 sentences.
+    Ensure you include all key details from the executed steps and context.
 
-Executed Steps with Results:
-{executed_plan}
+    Context:
+    {context_text}
 
-Using only these executed results and the context, give the final answer
-to the user's question in the SAME LANGUAGE as the question.
-"""
+    Executed Steps with Results:
+    {executed_plan}
+
+    Final Answer:
+    """
     result = await llm.ainvoke(final_prompt)
     return result.content if hasattr(result, "content") else str(result)
+
 
 # ===== Lookup Helper =====
 def perform_lookup(instruction: str, document_text: str) -> str:
