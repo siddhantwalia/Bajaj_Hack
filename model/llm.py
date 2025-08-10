@@ -13,9 +13,15 @@ OPEN_AI_KEY = os.getenv("OPEN_AI_KEY")
 
 # GROQ_Model = "gemma2-9b-it"
 # Cohere_Model = "command-r"
+<<<<<<< HEAD
 OPEN_AI_Model = "gpt-4.1-mini-2025-04-14"
 OPEN_AI_Model2 = "gpt-5-mini-2025-08-07"
 # OPEN_AI_Model2 = "gpt-4.1-2025-04-14"
+=======
+# OPEN_AI_Model = "gpt-4.1-mini-2025-04-14"
+# OPEN_AI_Model = "gpt-5-mini-2025-08-07"
+OPEN_AI_Model = "gpt-4.1-2025-04-14"
+>>>>>>> 7a795c3102a7ff3fd53a5d8c2f433544ef896a76
 # llm  = ChatCohere(
 #     model=Cohere_Model,
 #     cohere_api_key=CO_API_KEY
