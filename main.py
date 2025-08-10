@@ -1,36 +1,34 @@
-import os
 import re
 import asyncio
-import time
 import logging
 import httpx
+import time
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from typing import List
 from dotenv import load_dotenv
 from langchain_core.prompts import PromptTemplate
 from langchain_community.vectorstores import FAISS
+from langchain.schema import Document  # ✅ Correct Document import
 
 from model import Prompt, llm, NomicEmbeddings, rewrite_llm
 from utils import parse_document_from_url, split_documents
 
-# ---------------------- Config ---------------------- #
+# ---------------------- Setup ---------------------- #
 load_dotenv()
 app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-PAGE_THRESHOLD = 10
-faiss_cache = {}
+faiss_cache = {}  # Cache embeddings per doc
 
-# ---------------------- Request Model ---------------------- #
 class QueryRequest(BaseModel):
     documents: str
     questions: List[str]
 
 # ---------------------- Helpers ---------------------- #
 def clean_output(answer):
-    """Remove <think> tags and extra whitespace from LLM output."""
+    """Remove <think> tags and excessive spacing."""
     if hasattr(answer, "content"):
         content = answer.content
     else:
@@ -39,13 +37,13 @@ def clean_output(answer):
     return re.sub(r"\n{3,}", "\n\n", content)
 
 async def rewrite_question(original_question: str, first_doc_chunk: str = "") -> str:
-    """Rewrite the original question for better retrieval."""
+    """Rewrite question for better retrieval."""
     prompt_template_str = """
-    You are an expert query rewriter for a document retrieval system using embeddings and MMR search.
+    You are an expert query rewriter for a document retrieval system.
     Rewrite the original question into a concise, keyword-rich query with synonyms and related terms.
     Avoid unrelated details. Do not change the meaning.
 
-    First Chunk of Document (for context, if available): {first_doc_chunk}
+    First Chunk of Document: {first_doc_chunk}
 
     Original Question: {original_question}
 
@@ -66,191 +64,95 @@ async def rewrite_question(original_question: str, first_doc_chunk: str = "") ->
         logger.error(f"Rewrite error: {e}")
         return original_question
 
-def perform_lookup(instruction: str, document_text: str) -> str:
-    """Simple keyword or quoted text lookup in the document."""
-    doc = document_text
-    quoted = re.findall(r'"([^"]+)"', instruction)
-    if quoted:
-        results = []
-        for q in quoted:
-            results.extend([line.strip() for line in doc.splitlines() if q.lower() in line.lower()])
-        if results:
-            return "\n".join(results[:20])
+async def fetch_url(url: str, auth_token: str = None) -> str:
+    """Fetch URL content (with optional Authorization)."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        try:
+            headers = {"Authorization": auth_token} if auth_token else {}
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            return resp.text.strip()
+        except Exception as e:
+            return f"<HTTP ERROR fetching {url}: {e}>"
 
-    keywords = re.findall(r"\b[a-zA-Z0-9%]{2,}\b", instruction)
-    keywords = [k for k in keywords if k.lower() not in (
-        "find", "table", "row", "list", "products", "where", "which"
-    )]
-    results = []
-    if keywords:
-        for line in doc.splitlines():
-            if all(kw.lower() in line.lower() for kw in keywords[:3]):
-                results.append(line.strip())
-        if results:
-            return "\n".join(results[:30])
+async def enrich_document_with_urls(text_chunks: List[str], auth_token: str = None) -> List[str]:
+    """Find and fetch all URLs, append responses into text."""
+    url_pattern = r"https?://[^\s)>\]]+"
+    urls = set()
+    for chunk in text_chunks:
+        urls.update(re.findall(url_pattern, chunk))
 
-    return "<LOOKUP FAILED>"
+    if not urls:
+        return text_chunks
 
-async def ask_gpt_for_plan(question: str, context_text: str) -> str:
-    """Generate a step-by-step plan without giving the final answer."""
-    prompt = f"""
-You are an AI assistant that reads provided context/document and makes a precise,
-numbered plan to answer the user's question. RETURN ONLY A PLAN (numbered steps).
-Do NOT give the final answer in this response.
+    logger.info(f"Found {len(urls)} URLs in document. Fetching...")
+    fetch_results = await asyncio.gather(*[fetch_url(url, auth_token) for url in urls])
 
-Rules:
-- Respond in the ENGLISH only.
-- For value from doc: LOOKUP: <what to find>
-- For regex: EXTRACT_REGEX: <regex>
-- For API: GET https://example.com/path
-- Be concise and deterministic.
+    # Append fetched content after each URL occurrence
+    enriched_chunks = []
+    for chunk in text_chunks:
+        for url, content in zip(urls, fetch_results):
+            if url in chunk:
+                chunk += f"\n\n[Fetched from {url}]:\n{content}"
+        enriched_chunks.append(chunk)
 
-Context:
-{context_text}
+    return enriched_chunks
 
-Question:
-{question}
-
-Plan:
-"""
-    result = await llm.ainvoke(prompt)
-    return result.content if hasattr(result, "content") else str(result)
-
-async def execute_plan(plan: str, context_text: str, auth_token: str, question: str) -> str:
-    """Execute the generated plan and return final answer."""
-    executed_plan = plan
-
-    # Clean token
-    if auth_token:
-        auth_token = auth_token.strip().encode("utf-8", errors="ignore").decode("ascii", errors="ignore")
-
-    async with httpx.AsyncClient() as client:
-        for line in plan.splitlines():
-            line_stripped = line.strip()
-
-            # GET request
-            m_get = re.search(r"GET\s+(https?://\S+)", line_stripped)
-            if m_get:
-                url = re.sub(r"[\`\'\"\,\.\)\;]+$", "", m_get.group(1).strip())
-                try:
-                    resp = await client.get(url, headers={"Authorization": auth_token})
-                    resp.raise_for_status()
-                    value = resp.text.strip().replace('"', '')
-                except Exception as e:
-                    value = f"<HTTP ERROR: {type(e)._name_}: {e}>"
-                executed_plan = executed_plan.replace(line, f"{line} → {value}")
-                continue
-
-            # LOOKUP
-            if line_stripped.upper().startswith("LOOKUP:"):
-                lookup_result = perform_lookup(line_stripped[len("LOOKUP:"):].strip(), context_text)
-                executed_plan = executed_plan.replace(line, f"{line} → {lookup_result}")
-                continue
-
-            # EXTRACT_REGEX
-            if line_stripped.upper().startswith("EXTRACT_REGEX:"):
-                regex_text = line_stripped[len("EXTRACT_REGEX:"):].strip()
-                try:
-                    matches = re.findall(regex_text, context_text)
-                    if not matches:
-                        regex_result = "<NO MATCH>"
-                    else:
-                        formatted = [" | ".join(m) if isinstance(m, tuple) else str(m) for m in matches]
-                        regex_result = "\n".join(formatted[:20])
-                except re.error as re_err:
-                    regex_result = f"<BAD REGEX: {re_err}>"
-                executed_plan = executed_plan.replace(line, f"{line} → {regex_result}")
-                continue
-
-        final_prompt = f"""
-        You are a helpful assistant.
-
-        Answer the question below in clear, natural English, as if you are directly responding to the person asking.  
-        Keep it concise (maximum one short sentence) and do not include any reasoning steps or explanations.  
-        Use the provided context and executed steps only.
-
-        Question:
-        {question}
-        Context:
-        {context_text}
-
-        Executed Steps with Results:
-        {executed_plan}
-
-        Final Answer:
-        """
-
-    result = await llm.ainvoke(final_prompt)
-    return result.content if hasattr(result, "content") else str(result)
-
-# ---------------------- Pipelines ---------------------- #
-async def direct_rag_pipeline(parsed_docs, req):
-    """RAG pipeline (main2 logic)."""
-    doc_key = req.documents
-
-    if doc_key in faiss_cache:
-        db, texts, _ = faiss_cache[doc_key]
-        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 3, "lambda_mult": 0.8})
-        logger.info("Using cached FAISS retriever")
-    else:
-        chunks = split_documents(parsed_docs)
-        texts = [chunk.page_content for chunk in chunks]
-        embedding_model = NomicEmbeddings()
-        db = FAISS.from_documents(chunks, embedding_model)
-        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 3, "lambda_mult": 0.8})
-        faiss_cache[doc_key] = (db, texts, "\n".join(texts))
-
-    async def process_question(question: str):
-        logger.info(f"Processing (RAG) question: {question}")
-        rewritten_question = question if re.fullmatch(r"\s*\d+\s*[\+\-\/]\s\d+\s*", question) \
-            else await rewrite_question(question, texts[0] if texts else "")
-        context_docs = await asyncio.to_thread(retriever.invoke, rewritten_question)
-        context = "\n".join([doc.page_content for doc in context_docs]) if context_docs else ""
-        inputs = {"context": context, "question": question}
-        answer = await (Prompt | llm).ainvoke(inputs)
-        return clean_output(answer)
-
-    return {"answers": await asyncio.gather(*[process_question(q) for q in req.questions])}
-
-async def plan_execution_pipeline(parsed_docs, req, Authorization):
-    """Plan-based pipeline (main3 logic)."""
-    chunks = split_documents(parsed_docs)
-    texts = [chunk.page_content for chunk in chunks]
-    full_doc_text = "\n".join(texts)
-    answers = []
-    for question in req.questions:
-        logger.info(f"Generating plan for question: {question}")
-        plan = await ask_gpt_for_plan(question, full_doc_text)
-        logger.info(f"Executing plan: {plan}")
-        answer = await execute_plan(plan, full_doc_text, Authorization, question)
-        answers.append(answer)
-    return {"answers": answers}
-
-# ---------------------- API Routes ---------------------- #
+# ---------------------- API ---------------------- #
 @app.get("/")
 async def home():
-    return {"home": "This is our combined API endpoint"}
+    return {"home": "This is our unified API endpoint"}
 
 @app.post("/hackrx/run")
 async def run_query(req: QueryRequest, Authorization: str = Header(default=None)):
     start = time.time()
+
     if not Authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-    try:
-        parsed_docs = await parse_document_from_url(req.documents)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error parsing document: {e}")
-
-    page_count = len(parsed_docs) if parsed_docs else 1
-    logger.info(f"Document has {page_count} pages. Threshold is {PAGE_THRESHOLD}.")
-
-    if page_count <= PAGE_THRESHOLD:
-        logger.info("Using Plan Execution Pipeline")
-        result = await plan_execution_pipeline(parsed_docs, req, Authorization)
+    doc_key = req.documents
+    if doc_key in faiss_cache:
+        db, texts = faiss_cache[doc_key]
+        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 5, "lambda_mult": 0.8})
+        logger.info("Using cached FAISS retriever")
     else:
-        logger.info("Using Direct RAG Pipeline")
-        result = await direct_rag_pipeline(parsed_docs, req)
+        # 1. Parse document
+        try:
+            parsed_docs = await parse_document_from_url(req.documents)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Error parsing document: {e}")
 
+        chunks = split_documents(parsed_docs)
+        text_list = [chunk.page_content for chunk in chunks]
+
+        # 2. Enrich doc with fetched URLs
+        enriched_text_list = await enrich_document_with_urls(text_list, Authorization)
+
+        # 3. Build embeddings on enriched text
+        try:
+            embedding_model = NomicEmbeddings()
+            enriched_chunks = [Document(page_content=t) for t in enriched_text_list]
+            db = FAISS.from_documents(enriched_chunks, embedding_model)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Embedding/Vector store error: {e}")
+
+        retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 5, "lambda_mult": 0.8})
+        faiss_cache[doc_key] = (db, enriched_text_list)
+
+    # 4. Process each question
+    async def process_question(question: str):
+        try:
+            first_chunk = faiss_cache[doc_key][1][0] if faiss_cache[doc_key][1] else ""
+            rewritten_question = await rewrite_question(question, first_chunk)
+            context_docs = await asyncio.to_thread(retriever.invoke, rewritten_question)
+            context = "\n".join([doc.page_content for doc in context_docs]) if context_docs else ""
+            inputs = {"context": context, "question": question}
+            answer = await (Prompt | llm).ainvoke(inputs)
+            return clean_output(answer)
+        except Exception as e:
+            logger.error(f"Error processing question '{question}': {e}")
+            return f"Error: {e}"
+
+    answers = await asyncio.gather(*[process_question(q) for q in req.questions])
     logger.info(f"Total time: {time.time() - start:.2f}s")
-    return result
+    return {"answers": answers}
