@@ -31,8 +31,8 @@ nest_asyncio.apply()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
-# pytesseract.pytesseract.tesseract_cmd = r'D:\Tesseract\tesseract.exe'
+# pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+pytesseract.pytesseract.tesseract_cmd = r'D:\Tesseract\tesseract.exe'
 
 
 def extract_text_from_image_with_tesseract(image_path: str) -> str:

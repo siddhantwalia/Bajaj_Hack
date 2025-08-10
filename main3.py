@@ -22,11 +22,9 @@ class QueryRequest(BaseModel):
     documents: str
     questions: List[str]
 
-# ===== Detect non-English =====
 def has_non_ascii(s: str) -> bool:
     return any(ord(c) > 127 for c in s)
 
-# ===== Ask GPT for Plan =====
 async def ask_gpt_for_plan(question: str, context_text: str) -> str:
     prompt = f"""
 You are an AI assistant that reads provided context/document and makes a precise,
@@ -121,7 +119,7 @@ async def execute_plan(plan: str, context_text: str, auth_token: str, question: 
     result = await llm.ainvoke(final_prompt)
     return result.content if hasattr(result, "content") else str(result)
 
-# ===== Lookup Helper =====
+
 def perform_lookup(instruction: str, document_text: str) -> str:
     doc = document_text
     quoted = re.findall(r'"([^"]+)"', instruction)
@@ -144,31 +142,29 @@ def perform_lookup(instruction: str, document_text: str) -> str:
 
     return "<LOOKUP FAILED>"
 
-# ===== Main Processing =====
 async def process_question_rag_agent(question: str, retriever, texts, full_doc_text: str, Authorization: str):
     logger.info(f"Processing question: {question}")
 
     rewritten = await rewrite_llm.ainvoke(question)
     query = rewritten.content if hasattr(rewritten, "content") else str(rewritten)
 
-    # Retrieve chunks
     retrieved_docs = await asyncio.to_thread(retriever.invoke, query)
     retrieved_text = "\n".join([doc.page_content for doc in retrieved_docs]) if retrieved_docs else ""
-
-    # Merge retrieval with full doc
+    
     context_for_plan = (retrieved_text + "\n" + full_doc_text).strip()
 
-    # Plan → Execute → Answer
     plan = await ask_gpt_for_plan(question, context_for_plan)
     return await execute_plan(plan, context_for_plan, Authorization, question)
 
-# ===== API Route =====
+
 @app.post("/hackrx/run")
 async def run_query(req: QueryRequest, Authorization: str = Header(default=None)):
     if not Authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-    # Cache FAISS retriever
+    # Cache FAISS retriever 
+    logger.info(req.documents)
+    logger.info(req.questions)
     if req.documents in faiss_cache:
         db, texts, full_doc_text = faiss_cache[req.documents]
         retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 8, "lambda_mult": 0.8})
@@ -183,7 +179,6 @@ async def run_query(req: QueryRequest, Authorization: str = Header(default=None)
         retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 8, "lambda_mult": 0.8})
         faiss_cache[req.documents] = (db, texts, full_doc_text)
 
-    # Parallel execution
     answers = await asyncio.gather(*[
         process_question_rag_agent(q, retriever, texts, full_doc_text, Authorization)
         for q in req.questions
