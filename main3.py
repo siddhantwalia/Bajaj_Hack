@@ -34,7 +34,7 @@ numbered plan to answer the user's question. RETURN ONLY A PLAN (numbered steps)
 Do NOT give the final answer in this response.
 
 Rules:
-- Respond in the same language as the Question.
+- Respond in the **ENGLISH** only.
 - When you need a value from the document, write:
   LOOKUP: <what to find and how to present it>
 - When you want to extract with regex, write:
@@ -42,6 +42,7 @@ Rules:
 - When you want an HTTP call, write:
   GET https://example.com/path
 - Keep each step deterministic.
+- Be concise and clear in your responses
 
 Context:
 {context_text}
