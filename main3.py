@@ -7,6 +7,10 @@ from pydantic import BaseModel
 from typing import List
 from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
+# import os
+# from dotenv import load_dotenv
+# load_dotenv()
+# auth_token = os.getenv("AUTH_TOKEN","2bf8b96be600a4051766c0539476a52a9e709b91a7675580aa7676ba4d8de8be").strip()
 
 from model import llm, NomicEmbeddings, rewrite_llm
 from utils import parse_document_from_url, split_documents
@@ -98,24 +102,24 @@ async def execute_plan(plan: str, context_text: str, auth_token: str, question: 
 
     # Final answer
     final_prompt = f"""
-    You are a helpful assistant.
+        You are a helpful assistant.
 
-    First, detect the language of the question **from the question text only** — do NOT infer it from the document.
-    Then, answer in that same language.
+        Answer the question in clear, natural English, using a maximum of 2–3 sentences.  
+        Base your answer strictly on the provided context and executed steps — do not add any information from outside them.  
+        Ensure the tone is precise, human-like, and directly addresses the question without extra fluff.
 
-    Keep the answer concise (max 2–3 sentences) and include the details from the executed steps and context.
-    No need to tell the language we are using in the final answer
-    Question:
-    {question}
+        Question:
+        {question}
 
-    Context:
-    {context_text}
+        Context:
+        {context_text}
 
-    Executed Steps with Results:
-    {executed_plan}
+        Executed Steps with Results:
+        {executed_plan}
 
-    Final Answer:
-    """
+        Final Answer:
+        """
+
 
     result = await llm.ainvoke(final_prompt)
     return result.content if hasattr(result, "content") else str(result)
