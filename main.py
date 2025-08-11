@@ -3,14 +3,14 @@ import asyncio
 import logging
 import httpx
 import time
-import math
+from collections import OrderedDict
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from dotenv import load_dotenv
 from langchain_core.prompts import PromptTemplate
 from langchain_community.vectorstores import FAISS
-from langchain.schema import Document  # ✅ Correct Document import
+from langchain.schema import Document
 
 from model import Prompt, llm, NomicEmbeddings, rewrite_llm
 from utils import parse_document_from_url, split_documents
@@ -24,16 +24,21 @@ logger = logging.getLogger(__name__)
 # Embedding batching & concurrency (tune based on your API limits)
 BATCH_SIZE = 128                 # number of chunks per embedding request
 MAX_CONCURRENT_EMBED_CALLS = 3   # concurrency of simultaneous embedding API calls
-EMBED_RETRY_MAX = 3              # retry attempts for 429s or transient failures
+EMBED_ROG_RETRY_MAX = 3          # retry attempts for 429s or transient failures
 EMBED_RETRY_BACKOFF_BASE = 0.6   # exponential backoff base (seconds)
 
 # HTTP fetching limits
 HTTP_MAX_CONNECTIONS = 20
 HTTP_TIMEOUT = 10  # seconds
+HTTP_RETRY_MAX = 3
+HTTP_RETRY_BACKOFF_BASE = 0.6
+
+# Cache limits to prevent memory leaks
+MAX_CACHE_SIZE = 100
 
 # cache structures
-faiss_cache: Dict[str, Tuple[FAISS, List[str]]] = {}   # doc_key -> (faiss_db, enriched_text_list)
-embedding_cache: Dict[int, List[float]] = {}          # hash(text) -> embedding (to avoid re-embedding duplicates)
+faiss_cache: Dict[str, FAISS] = OrderedDict()  # doc_key -> faiss_db (simplified as requested)
+embedding_cache: Dict[int, List[float]] = OrderedDict()  # hash(text) -> embedding (to avoid re-embedding duplicates)
 
 class QueryRequest(BaseModel):
     documents: str
@@ -52,16 +57,23 @@ def clean_output(answer):
 async def rewrite_question(original_question: str, first_doc_chunk: str = "") -> str:
     """Rewrite question for better retrieval (kept optional)."""
     prompt_template_str = """
-    You are an expert query rewriter for a document retrieval system.
-    Rewrite the original question into a concise, keyword-rich query with synonyms and related terms.
-    Avoid unrelated details. Do not change the meaning.
+You are an expert document analyst with strong reasoning skills.
 
-    First Chunk of Document: {first_doc_chunk}
+Your task is to rewrite the user question into a precise, keyword-rich query to retrieve correct context from the document.
 
-    Original Question: {original_question}
+Use intelligence to smartly identify and emphasize key concepts such as "favorite city", "landmarks", "flight numbers", and any city names.
 
-    Rewritten Query:
-    """
+Remove irrelevant details and keep only terms that will help retrieve the exact info about the user's favorite city and related flight details.
+
+Document Chunk:
+{first_doc_chunk}
+
+Original Question:
+{original_question}
+
+Rewritten Query:
+"""
+
     prompt_text = PromptTemplate(
         input_variables=["original_question", "first_doc_chunk"],
         template=prompt_template_str
@@ -72,45 +84,52 @@ async def rewrite_question(original_question: str, first_doc_chunk: str = "") ->
             "first_doc_chunk": first_doc_chunk
         })
         rewritten = await rewrite_llm.ainvoke(formatted_prompt)
+        logger.info(f"Rewritten question: {rewritten.content.strip()}")
         return rewritten.content.strip() if hasattr(rewritten, "content") else str(rewritten).strip()
     except Exception as e:
         logger.warning(f"Rewrite error, using original question: {e}")
         return original_question
 
-# ----- Robust HTTP fetch for URLs (concurrent, limited) -----
+# ----- Robust HTTP fetch for URLs (concurrent, limited, with retries) -----
 async def fetch_url(client: httpx.AsyncClient, url: str, auth_token: str = None) -> str:
-    """Fetch URL content (with optional Authorization) using provided client."""
+    """Fetch URL content (with optional Authorization) using provided client, with retries."""
     headers = {"Authorization": auth_token} if auth_token else {}
-    try:
-        resp = await client.get(url, headers=headers)
-        resp.raise_for_status()
-        return resp.text.strip()
-    except Exception as e:
-        logger.debug(f"Fetch URL error for {url}: {e}")
-        return f"<HTTP ERROR fetching {url}: {e}>"
+    last_exc = None
+    for attempt in range(HTTP_RETRY_MAX):
+        try:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            return resp.text.strip()
+        except httpx.HTTPStatusError as e:
+            last_exc = e
+            if e.response.status_code == 429:
+                backoff = HTTP_RETRY_BACKOFF_BASE * (2 ** attempt) + (attempt * 0.1)
+                logger.warning(f"Rate-limited fetching {url} (attempt {attempt+1}/{HTTP_RETRY_MAX}). Backing off {backoff:.2f}s.")
+                await asyncio.sleep(backoff)
+                continue
+            raise
+        except Exception as e:
+            last_exc = e
+            logger.debug(f"Fetch URL error for {url}: {e}")
+            backoff = HTTP_RETRY_BACKOFF_BASE * (2 ** attempt) + (attempt * 0.1)
+            await asyncio.sleep(backoff)
+    return f"<ERROR fetching {url}: {last_exc}>"
 
-async def enrich_document_with_urls_fast(text_chunks: List[str], auth_token: str = None, max_conn: int = HTTP_MAX_CONNECTIONS) -> List[str]:
-    """Find all unique URLs, fetch them concurrently, append their content in one pass."""
+async def enrich_document_with_urls_fast(text_chunks: List[str], auth_token: str = None, max_conn: int = HTTP_MAX_CONNECTIONS) -> tuple[List[str], list[str]]:
+    """Find all unique URLs, fetch them concurrently, append their content once per URL. Returns enriched chunks and found_urls."""
     url_pattern = r"https?://[^\s)>\]]+"
-    # preserve insertion order for deterministic mapping
-    found_urls = []
-    seen = set()
-    for chunk in text_chunks:
-        for u in re.findall(url_pattern, chunk):
-            if u not in seen:
-                seen.add(u)
-                found_urls.append(u)
+    found_urls = list(dict.fromkeys(re.findall(url_pattern, " ".join(text_chunks))))  # Unique in order
 
     if not found_urls:
-        return text_chunks
+        return text_chunks, found_urls
 
-    logger.info(f"Found {len(found_urls)} URLs in document. Fetching concurrently...")
+    logger.info(f"Found {len(found_urls)} unique URLs in document. Fetching concurrently...")
     limits = httpx.Limits(max_connections=max_conn)
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, limits=limits) as client:
         tasks = [fetch_url(client, u, auth_token) for u in found_urls]
         responses = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # build map url -> content (string)
+    # Build map url -> content (string)
     url_content_map = {}
     for u, r in zip(found_urls, responses):
         if isinstance(r, Exception):
@@ -118,34 +137,31 @@ async def enrich_document_with_urls_fast(text_chunks: List[str], auth_token: str
         else:
             url_content_map[u] = r
 
-    # append fetched content only once per chunk where URL appears
-    enriched_chunks = []
-    for chunk in text_chunks:
-        additions = []
+    # Append fetched content only once per URL, distributing to first chunk where it appears
+    enriched_chunks = text_chunks[:]
+    appended_urls = set()
+    for i, chunk in enumerate(enriched_chunks):
         for u in found_urls:
-            if u in chunk:
-                additions.append(f"\n\n[Fetched from {u}]:\n{url_content_map[u]}")
-        enriched_chunks.append(chunk + "".join(additions))
-    return enriched_chunks
+            if u in chunk and u not in appended_urls:
+                enriched_chunks[i] += f"\n\n[Fetched from {u}]:\n{url_content_map[u]}"
+                appended_urls.add(u)
+    return enriched_chunks, found_urls
 
 # ----- Embedding helpers: dedupe + concurrency + retry -----
 def _hash_text_to_int(text: str) -> int:
     """Stable int hash for mapping into embedding_cache."""
-    # use Python built-in hash may vary between runs, so use a stable hash:
-    return int.from_bytes(__import__("hashlib").sha1(text.encode("utf-8")).digest()[:8], "big")
+    import hashlib
+    return int.from_bytes(hashlib.sha1(text.encode("utf-8")).digest()[:8], "big")
 
-async def _embed_with_retries(embedding_model, texts: List[str], retries=EMBED_RETRY_MAX, backoff_base=EMBED_RETRY_BACKOFF_BASE):
-    """Call embedding_model.embed_documents in a thread with retries on transient errors (e.g., 429)."""
+async def _embed_with_retries(embedding_model, texts: List[str], retries=EMBED_ROG_RETRY_MAX, backoff_base=EMBED_RETRY_BACKOFF_BASE):
+    """Call embedding_model.embed_documents in a thread with retries on transient errors."""
     last_exc = None
     for attempt in range(retries):
         try:
-            # run blocking embed call in a thread so it doesn't block event loop
             embeds = await asyncio.to_thread(embedding_model.embed_documents, texts)
             return embeds
         except Exception as e:
             last_exc = e
-            # If it's clearly a rate-limit or transient network error, sleep then retry
-            # We check for 429 or 'rate' keywords in exception string - adjust per provider
             s = str(e).lower()
             if "429" in s or "rate" in s or "too many" in s or "try again" in s:
                 backoff = backoff_base * (2 ** attempt) + (attempt * 0.1)
@@ -153,9 +169,7 @@ async def _embed_with_retries(embedding_model, texts: List[str], retries=EMBED_R
                 await asyncio.sleep(backoff)
                 continue
             else:
-                # non-retryable - raise immediately
                 raise
-    # if we get here, all retries failed
     logger.error(f"Embedding failed after {retries} attempts: {last_exc}")
     raise last_exc
 
@@ -176,29 +190,23 @@ async def build_faiss_concurrent(docs: List[Document], embedding_model, batch_si
 
     logger.info(f"Embedding {len(unique_texts)} unique chunks (from {len(docs)} total chunks). Batch size={batch_size}, concurrency={max_concurrent}")
 
-    # 2. For unique_texts, check embedding_cache to avoid repeating work
+    # 2. Check embedding_cache
     texts_to_embed = []
-    embed_positions = []  # positions in unique_texts that actually need embedding
-    for idx, txt in enumerate(unique_texts):
-        key = _hash_text_to_int(txt)
-        if key in embedding_cache:
-            continue
-        embed_positions.append(idx)
-        texts_to_embed.append(txt)
-
-    # 3. If nothing to embed, gather cached embeddings and build index
+    embed_positions = []
     all_embeddings = [None] * len(unique_texts)
     for idx, txt in enumerate(unique_texts):
         key = _hash_text_to_int(txt)
         if key in embedding_cache:
             all_embeddings[idx] = embedding_cache[key]
+        else:
+            embed_positions.append(idx)
+            texts_to_embed.append(txt)
 
     if texts_to_embed:
         semaphore = asyncio.Semaphore(max_concurrent)
 
         async def embed_batches_worker():
             tasks = []
-            # create batches of texts_to_embed
             for i in range(0, len(texts_to_embed), batch_size):
                 batch = texts_to_embed[i:i + batch_size]
 
@@ -208,40 +216,32 @@ async def build_faiss_concurrent(docs: List[Document], embedding_model, batch_si
 
                 tasks.append(asyncio.create_task(_embed_batch(batch)))
 
-            # run all batches concurrently (bounded by semaphore)
             batch_results = await asyncio.gather(*tasks)
+            flat_embeds = [emb for br in batch_results for emb in br]
 
-            # flatten batches back into embeddings list and fill into all_embeddings at correct positions
-            flat_embeds = []
-            for br in batch_results:
-                flat_embeds.extend(br)
-
-            # map flat_embeds back to embed_positions order
             for pos_idx, emb in zip(embed_positions, flat_embeds):
-                # store embedding and cache
                 all_embeddings[pos_idx] = emb
                 key = _hash_text_to_int(unique_texts[pos_idx])
                 embedding_cache[key] = emb
+                if len(embedding_cache) > MAX_CACHE_SIZE:
+                    embedding_cache.pop(next(iter(embedding_cache)))  # Evict oldest
 
         await embed_batches_worker()
 
-    # sanity check: all_embeddings should be fully populated
+    # Sanity check
     missing = [i for i, e in enumerate(all_embeddings) if e is None]
     if missing:
         raise RuntimeError(f"Missing embeddings for indices {missing}")
 
-    # 4. Build FAISS via langchain helper - pair texts with embeddings
+    # 3. Build FAISS
     pairs = list(zip(unique_texts, all_embeddings))
     try:
         vs = FAISS.from_embeddings(pairs, embedding_model)
     except Exception as e:
-        # fallback: attempt to use from_documents (slower if embed function is used)
-        logger.warning(f"FAISS.from_embeddings failed: {e}. Trying from_documents fallback.")
-        docs_for_store = [Document(page_content=t) for t in unique_texts]
-        vs = FAISS.from_documents(docs_for_store, embedding_model)
+        logger.warning(f"FAISS.from_embeddings failed: {e}. Using manual add_embeddings fallback.")
+        vs = FAISS(embedding_model)
+        vs.add_embeddings(pairs)  # Use existing embeddings
 
-    # 5. If original docs contained duplicates, we still built index on unique_texts.
-    # For retriever working, this is fine because the content exists in index.
     return vs
 
 # ---------------------- API ---------------------- #
@@ -256,12 +256,15 @@ async def run_query(req: QueryRequest, Authorization: str = Header(default=None)
     if not Authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-    doc_key = req.documents  # keep as user provides; consider hashing content for better caching
+    # Hash doc_key with auth for security (prevent cross-user cache pollution)
+    import hashlib
+    doc_key = hashlib.sha256((req.documents + Authorization).encode()).hexdigest()
+
     if doc_key in faiss_cache:
-        db, texts = faiss_cache[doc_key]
+        db = faiss_cache[doc_key]
         logger.info("Using cached FAISS retriever")
     else:
-        # 1. Parse document (might be network) - keep original util
+        # 1. Parse document
         try:
             parsed_docs = await parse_document_from_url(req.documents)
         except Exception as e:
@@ -277,10 +280,10 @@ async def run_query(req: QueryRequest, Authorization: str = Header(default=None)
 
         text_list = [c.page_content for c in chunks]
 
-        # 3. Enrich URLs concurrently
-        enriched_text_list = await enrich_document_with_urls_fast(text_list, Authorization, max_conn=HTTP_MAX_CONNECTIONS)
+        # 3. Enrich URLs concurrently (now returns found_urls for conditional check)
+        enriched_text_list, found_urls = await enrich_document_with_urls_fast(text_list, Authorization, max_conn=HTTP_MAX_CONNECTIONS)
 
-        # 4. Build embeddings + FAISS concurrently with dedupe and controlled concurrency
+        # 4. Build embeddings + FAISS
         try:
             embedding_model = NomicEmbeddings()
             enriched_chunks = [Document(page_content=t) for t in enriched_text_list]
@@ -289,27 +292,29 @@ async def run_query(req: QueryRequest, Authorization: str = Header(default=None)
             logger.exception("Embedding/Vector store error")
             raise HTTPException(status_code=500, detail=f"Embedding/Vector store error: {e}")
 
-        # 5. Cache the results
-        faiss_cache[doc_key] = (db, enriched_text_list)
-        logger.info("FAISS index built and cached")
+        # 5. Conditional caching: only cache if no HTTP/HTTPS URLs found in the document content
+        if len(found_urls) == 0:
+            faiss_cache[doc_key] = db
+            if len(faiss_cache) > MAX_CACHE_SIZE:
+                faiss_cache.pop(next(iter(faiss_cache)))  # Evict oldest
+            logger.info("FAISS index built and cached (no URLs in document content)")
+        else:
+            logger.info("Document content contains HTTP/HTTPS URLs, skipping FAISS cache storage")
 
-    retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 5, "lambda_mult": 0.8})
+    retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 5, "lambda_mult": 0.3})
 
-    # Process questions in parallel (each question executes retrieval + single LLM call)
+    # Process questions in parallel
     async def process_q(question: str):
         try:
-            # optional: use the first chunk to help rewrite (keeps rewrite step, but you can skip it to save time)
-            first_chunk = faiss_cache[doc_key][1][0] if faiss_cache.get(doc_key) and faiss_cache[doc_key][1] else ""
-            # you may choose to comment out rewrite_question to save ~1-2s per query
+            # Optional rewrite (commented to optimize speed; uncomment if needed)
+            # first_chunk = ""  # No longer caching enriched list, so fallback to empty
             # rewritten_question = await rewrite_question(question, first_chunk)
             rewritten_question = question
 
-            # retrieval runs in a thread if retriever.invoke is blocking
             context_docs = await asyncio.to_thread(retriever.invoke, rewritten_question)
             context = "\n".join([doc.page_content for doc in context_docs]) if context_docs else ""
+            context = context[:8000]  # Truncate to avoid token limits
 
-            # limit context length if your LLM has token limits (optional)
-            # answer with your existing (Prompt | llm).ainvoke pattern
             inputs = {"context": context, "question": question}
             answer = await (Prompt | llm).ainvoke(inputs)
             return clean_output(answer)
@@ -317,9 +322,8 @@ async def run_query(req: QueryRequest, Authorization: str = Header(default=None)
             logger.exception(f"Error processing question '{question}': {e}")
             return f"Error: {e}"
 
-    # schedule all question tasks concurrently and wait
     answers = await asyncio.gather(*[process_q(q) for q in req.questions])
 
     elapsed = time.time() - start
     logger.info(f"Total run_query time: {elapsed:.2f}s")
-    return {"answers": answers, "took_seconds": round(elapsed, 2)}  
+    return {"answers": answers}

@@ -31,9 +31,9 @@ nest_asyncio.apply()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+# pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
 # pytesseract.pytesseract.tesseract_cmd = r'D:\Tesseract\tesseract.exe'
-# pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 def extract_text_from_image_with_tesseract(image_path: str) -> str:
     """Extract text from image using Tesseract OCR"""
@@ -184,7 +184,7 @@ async def parse_document_from_url(url: str):
 
 
 # === Split into LangChain-compatible chunks ===
-def split_documents(parsed_docs, chunk_size=500, chunk_overlap=70):
+def split_documents(parsed_docs, chunk_size=1000, chunk_overlap=200):
     """Split documents into smaller chunks for processing"""
     all_chunks = []
     splitter = RecursiveCharacterTextSplitter(
