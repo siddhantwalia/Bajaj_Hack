@@ -322,4 +322,4 @@ async def run_query(req: QueryRequest, Authorization: str = Header(default=None)
 
     elapsed = time.time() - start
     logger.info(f"Total run_query time: {elapsed:.2f}s")
-    return {"answers": answers, "took_seconds": round(elapsed, 2)}
+    return {"answers": answers, "took_seconds": round(elapsed, 2)}  
